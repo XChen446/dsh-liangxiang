@@ -117,6 +117,30 @@ describe('bootstrap and token claims', () => {
     expect(response.authoritative_personal_state.claimed_effective_tokens).toBe(300_000)
   })
 
+  it('accepts a single default-limit catch-up of exactly 5,000 incense', () => {
+    const f = boot()
+    const response = f.service.applyTokenClaim(INSTALLATION, {
+      claimed_effective_tokens: 250_000_000,
+      claim_business_date: '2026-08-16',
+    })
+    expect(response.claim_notice).toBeUndefined()
+    expect(response.claim_applied).toBe(true)
+    expect(response.authoritative_personal_state.claimed_effective_tokens).toBe(250_000_000)
+    expect(response.authoritative_personal_state.earned_incense).toBe(5_000)
+  })
+
+  it('clamps a single default-limit catch-up above 5,000 incense', () => {
+    const f = boot()
+    const response = f.service.applyTokenClaim(INSTALLATION, {
+      claimed_effective_tokens: 250_050_000,
+      claim_business_date: '2026-08-16',
+    })
+    expect(response.claim_notice).toBe('claim_capped_absurd')
+    expect(response.claim_applied).toBe(true)
+    expect(response.authoritative_personal_state.claimed_effective_tokens).toBe(250_000_000)
+    expect(response.authoritative_personal_state.earned_incense).toBe(5_000)
+  })
+
   it('ignores a claim computed for a different business date', () => {
     const f = boot()
     const response = f.service.applyTokenClaim(INSTALLATION, {

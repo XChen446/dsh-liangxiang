@@ -74,11 +74,11 @@ Badge / 今日梁案 / 香火环 / 二元投票 / 梁祠
 | 组件 | 当前事实 |
 |---|---|
 | 插件程序号 | 当前源码 `package.json` / `PLUGIN_VERSION` = `1.1.6`；npm `latest` = `1.1.6` |
-| 本地 Backend 源码 | `SERVER_BUILD=1.1.6-u1`；schema v10（v9 receipt + v10 单行限时广播） |
+| 本地 Backend 源码 | `SERVER_BUILD=1.1.6-u2`；schema v10（v9 receipt + v10 单行限时广播）；单次 Token 补账异常限幅为 5,000 炷（2.5 亿 Pro 当量） |
 | count 修复基线 | accepted 与 rejected 的 `count` 业务处置都保存 durable receipt；v7/v8→v9 migration 整体原子化 |
 | DSH 兼容基线 | 源码审计为 `dsh-v0.1.2-alpha.5` / `db6bdc3576`；npm 无标签安装实际解析到的稳定线 `0.1.1-rc.2` 也已用同一份 1.1.6 tarball 完成真实 Profile 与浏览器回归；Node `22.23.1` / pnpm `11.7.0` |
 | 官网 | `1.1.6` 官网源码已经验收，随本次正式发布推送独立仓 `main`；GoatCounter 使用一方统计域名，构建门禁会阻止漏装统计脚本 |
-| 社区服务器 | `SERVER_BUILD=1.1.6-u1` / schema v10；只通过 `scripts/deploy.sh` 更新并由 `scripts/deploy-check.sh` 核验 |
+| 社区服务器 | `SERVER_BUILD=1.1.6-u2` / schema v10；单次 Token 补账异常限幅为 5,000 炷；只通过 `scripts/deploy.sh` 更新并由 `scripts/deploy-check.sh` 核验 |
 
 服务器必须与部署分支当前 HEAD 一致。任何 Agent 都不得因为本地修复已提交，就声称
 远端已升级；每次获准部署前后必须分别运行 `scripts/deploy-check.sh`。

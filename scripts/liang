@@ -216,7 +216,7 @@ case "$1" in
         print_effective_config TOKEN_PER_INCENSE 50000
         print_effective_config VOTE_RATE_LIMIT 50
         print_effective_config VOTE_RATE_LIMIT_MAX_KEYS 4096
-        print_effective_config ABSURD_CLAIM_TOKENS 25000000
+        print_effective_config ABSURD_CLAIM_TOKENS 250000000
         print_effective_config REKEY_COOLDOWN_MS 1800000
         print_effective_config ADMISSION_CLAIM_RATE_LIMIT 120
         print_effective_config ADMISSION_TICKET_TTL_HOURS 24

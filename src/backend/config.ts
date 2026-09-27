@@ -34,12 +34,12 @@ const MAX_SNAPSHOT_REFRESH_SECONDS = 3600
 export const SNAPSHOT_HISTORY_LIMIT = 200
 
 /**
- * Absurd single-claim ceiling in tokens (~500 炷 at the 50K default). This is
+ * Absurd single-claim ceiling in tokens (~5,000 炷 at the 50K default). This is
  * NOT a rate limit for honest usage — it only clamps a host that reports an
  * impossible per-claim jump, with an explicit notice so it reads as a guard,
  * not as a silent "香火不涨" bug. 0 disables the guard.
  */
-export const DEFAULT_ABSURD_CLAIM_TOKENS = 25_000_000
+export const DEFAULT_ABSURD_CLAIM_TOKENS = 250_000_000
 export const DEFAULT_ADMISSION_CLAIM_RATE_LIMIT = 120
 export const DEFAULT_ADMISSION_TICKET_TTL_HOURS = 24
 export const DEFAULT_ADMISSION_TICKET_MAX_CLAIMS = 1
