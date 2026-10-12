@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { RELEASE_NOTES_TITLE } from '../../src/client/release-notes.ts'
+import { incenseWeightRows } from '../../src/domain/index.ts'
+import { parseWireState } from '../../src/shared/wire.ts'
 
 import {
   badgeSelector,
@@ -55,6 +57,29 @@ test('keyboard opens and closes the panel and returns focus to 今日梁相', as
   await badge.press('Space')
   await expect(panel).toBeVisible()
   await expect(panel).toBeFocused()
+})
+
+test('next-incense tooltip uses the installed Host rules and stays within the viewport', async ({ page }) => {
+  const panel = await openPanel(page)
+  const response = await page.request.get('/liangxiang/api/state')
+  expect(response.ok()).toBe(true)
+  const wire = parseWireState(await response.json())
+  expect(wire.incenseWeightPolicy).toBeDefined()
+  const next = panel.locator('[data-liangxiang-personal="next-incense"]')
+  await next.focus()
+  const tooltip = next.locator('[data-liangxiang-weight-hint]')
+  await expect.poll(() => tooltip.evaluate(element => getComputedStyle(element).opacity)).toBe('1')
+  const rows = incenseWeightRows(wire.incenseWeightPolicy!, wire.personal.tokenPerIncense)
+  await expect(tooltip.locator('tbody tr')).toHaveCount(rows.length)
+  for (const [index, row] of rows.entries()) {
+    await expect(tooltip.locator('tbody tr').nth(index).locator('th,td')).toHaveText([row.model, row.weight, row.stick])
+  }
+  const box = await tooltip.boundingBox()
+  expect(box).not.toBeNull()
+  if (box !== null) {
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  }
 })
 
 test('fresh default dock sits just above the visible DSH settings control', async ({ page }, testInfo) => {

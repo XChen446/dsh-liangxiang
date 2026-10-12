@@ -96,11 +96,6 @@ export const NEXT_INCENSE_PROGRESS_LABEL = '已攒'
 export const NEXT_INCENSE_UNIT = '当量'
 
 export const NEXT_INCENSE_WEIGHT_TITLE = '攒香按 Pro 当量'
-export const NEXT_INCENSE_WEIGHT_ROWS: ReadonlyArray<{ model: string, weight: string, stick: string }> = [
-  { model: 'V4-Pro', weight: '×1', stick: '5 万当量 = 1 炷' },
-  { model: 'V4-Flash', weight: '×0.5', stick: '约 10 万原始用量 = 1 炷' },
-  { model: '其它', weight: '×0.5', stick: '同 V4-Flash' },
-]
 
 /** Region 4 stat labels (西游口吻：三界香火 / 取经五众). */
 export const INCENSE_STAT_LABEL = '三界香火'

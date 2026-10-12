@@ -11,6 +11,7 @@ import {
   openLiangxiangLocalPersistence,
   openLiangxiangPersistence,
 } from '../src/compat/dsh/storage.ts'
+import { DEFAULT_INCENSE_WEIGHT_POLICY, parseIncenseWeightPolicy } from '../src/domain/index.ts'
 
 class MemoryTable implements DshKvTable {
   constructor(readonly values = new Map<string, unknown>()) {}
@@ -38,7 +39,9 @@ class MemoryDomain implements DshOpenDomain {
 
 class MemoryFacility implements DshStorageDomainFacility {
   readonly domains = new Map<string, MemoryDomain>()
+  readonly specs = new Map<string, DshDomainSpec>()
   open(spec: DshDomainSpec): Promise<DshOpenDomain> {
+    this.specs.set(spec.name, spec)
     let domain = this.domains.get(spec.name)
     if (domain === undefined) {
       domain = new MemoryDomain(spec.name, Object.keys(spec.tables))
@@ -49,6 +52,30 @@ class MemoryFacility implements DshStorageDomainFacility {
 }
 
 describe('liangxiang storage', () => {
+  it('preserves settled cursors, pinned daily rules and the shared last-known-good policy cache on reopen', async () => {
+    const facility = new MemoryFacility()
+    const handle = await openLiangxiangPersistence(facility, () => undefined)
+    await handle.settings.setAuthorityPreference('local')
+    const policy = parseIncenseWeightPolicy(DEFAULT_INCENSE_WEIGHT_POLICY)
+    handle.port.putWeightPolicies?.([policy])
+    handle.port.putWatermark('settled-session', { inputHwm: 50_000, outputHwm: 0, settledOffset: 12, baselineOffset: 3 })
+    handle.port.putDailyUsage('2026-10-12', { inputTokens: 50_000, outputTokens: 0, weightCarry: 0, observedAt: 1, weightPolicy: policy })
+    await handle.close()
+    const reopened = await openLiangxiangPersistence(facility, () => undefined)
+    const rows = await reopened.port.load()
+    expect(rows.watermarks.get('settled-session')).toMatchObject({ settledOffset: 12, baselineOffset: 3 })
+    expect(rows.dailyUsage.get('2026-10-12')?.weightPolicy).toEqual(policy)
+    expect(rows.weightPolicies).toEqual([policy])
+    expect(reopened.settings.getAuthorityPreference()).toBe('local')
+    const cached = facility.domains.get(LIANGXIANG_DOMAIN_NAME)?.table('settings').get('model_weights') as { authorityPreference: string }
+    expect(cached.authorityPreference).toBe('local') // old 1.1.6 settings validator remains satisfied
+    const normalized = facility.specs.get(LIANGXIANG_DOMAIN_NAME)?.tables.settings?.valueSchema.parse(cached) as { authorityPreference: string }
+    expect(normalized.authorityPreference).toBe('local') // keep it after a real schema-normalized reopen too
+    const local = await openLiangxiangLocalPersistence(facility, reopened, () => undefined)
+    expect((await local.port.load()).weightPolicies).toEqual([policy])
+    await local.close()
+    await reopened.close()
+  })
   it('loads existing identity and accounting records from the canonical domain', async () => {
     const facility = new MemoryFacility()
     const current = await facility.open({

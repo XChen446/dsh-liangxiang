@@ -1,6 +1,6 @@
 # 梁相：当前架构与事实索引
 
-> Agent 默认入口，最后核对：2026-09-03。先完整阅读根目录
+> Agent 默认入口，源码最后核对：2026-10-12；远端运维快照仍以其单独日期为准。先完整阅读根目录
 > [`AGENTS.md`](../AGENTS.md)，再读本文与 [`docs/README.md`](README.md)。
 > 本文记录“现在是什么”；产品契约冲突时永远以 `AGENTS.md` 为准，精确 DSH
 > 兼容基线以 [`COMPATIBILITY.md`](COMPATIBILITY.md) 为准。
@@ -33,11 +33,11 @@
 ## 3. 当前运行架构
 
 ```text
-DSH provider-reported tokenUsage
+DSH durable provider usage + request/attempt lifecycle
         ↓
 src/compat/dsh（唯一 DSH 接触层）
         ↓
-Host 用量差分、模型权重、跨会话高水位
+Host 每次请求最终结算、同源模型规则、持久化会话结算游标
         ├── online → 签名 Host 声明 Token → 社区 Backend / SQLite
         └── offline → 独立本地账本
         ↓
@@ -62,7 +62,8 @@ Badge / 今日梁案 / 香火环 / 二元投票 / 梁祠
 - 在线 Backend 的 SQLite 事务权威决定扣香、接受票、幂等、唯一香客、聚合和快照。
 - 在线核心状态在 `storages/liangxiang.json`；离线玩法在懒创建的
   `storages/liangxiang_local.json`。两种模式不合并香火、票、梁案或档案。
-- 两种模式只共享会话高水位，防止同一段 DSH 累计用量在两侧重复凝香。
+- 两种模式共享会话结算游标（旧高水位保留迁移兼容），防止同一请求在两侧重复凝香；
+  模型规则缓存可共享，香火/票/档案仍严格隔离。
 - Global ratio、Liangzi state 与计数必须来自同一 snapshot；梁祠走独立 history 冷通道。
 - 网络中断保持 online 偏好、锁票并自动重连，绝不静默切换 offline。
 - 不记录或传输 prompt、回复、源码、会话内容、凭据或原始文件路径。
@@ -70,6 +71,10 @@ Badge / 今日梁案 / 香火环 / 二元投票 / 梁祠
 ## 4. 版本矩阵
 
 以下是 `1.1.6` 正式发布基线：
+
+2026-10-12 源码新增未发布的模型规则引擎与最终请求结算；用户要求本批暂不升版本、
+验证后统一 commit/push。版本字符串仍是旧正式基线，不代表 npm 或远端已经更新。
+正式发布前必须统一盖新版本/构建号。当前规则与运维数据入口见 `INCENSE_POLICY.md`。
 
 | 组件 | 当前事实 |
 |---|---|
@@ -107,22 +112,23 @@ Badge / 今日梁案 / 香火环 / 二元投票 / 梁祠
 
 ### 发布前阻塞
 
-- 远端 v7 尚无 `requested_count`、request receipt 或广播表；本地 schema v10 修复未部署。
+- schema v10 的 receipt/广播迁移已在 2026-09-28 随 `1.1.6-u2` 部署；以下是旧迁移
+  的历史约束，不是仍待部署的阻塞。本批模型规则源码尚未部署，见 `INCENSE_POLICY.md`。
   v7 accepted 行会回填为 count 未知的 accepted receipt：旧单票可按 count=1 安全重放，
   旧批量因无法恢复原始 count 而返回 409；历史 rejected 从未落库，无法追溯重建。v9
   对每个进入 service 的 accepted / stale / closed / insufficient 处置保存完整规范化
   payload；同 payload 重放既有处置，不同 case/type/count 必须冲突。HTTP 解析/鉴权失败、
-  admission 429、网络和 500 不进入业务事务，也不占 request ID。部署前须再次验证
-  v7→v10 migration、备份、重启和真实请求回归。
+  admission 429、网络和 500 不进入业务事务，也不占 request ID。后续发布仍须按实际
+  数据库版本验证迁移、备份、重启和真实请求回归。
 - 为防不同 ID 的 rejected receipt 无界写盘，新 accepted 按实际扣香数消耗限流 work
   units，新 service rejection 消耗 1；已存 receipt 的 replay/conflict 绕过 live bucket。
 - 正常日切、关案和重启保留 receipt。只有带 `--yes` 的 `cases reset` / `archive clear`
   会和对应票据一起删除 receipt、明确释放这些 request ID；这是运维破坏性例外，不能
   当成日常幂等保留策略。
 - DSH 是 Developer Preview。每次升级必须重新读钉住源码，不得凭模型记忆猜 API。
-- DSH 的官方 token projection 允许同一 attempt 的最终样本向下修正；当前跨会话
-  高水位适合累计样本，却可能保留过高的中间样本。完成 attempt 级结算适配前，必须把
-  这项兼容性风险保留在 `COMPATIBILITY.md`，不能宣称 Token 投影已完全精确。
+- DSH 的 `tokenUsage` 累计值允许最终样本下调。未发布源码已改为按请求最终样本结算，
+  原生 DSH 投影对照、重试、模型切换、重启/种子/跨日回归见 `COMPATIBILITY.md`。
+  已发布 1.1.6 仍有旧高水位的中间样本多计风险；既往信用不追溯改写。
 - 社区模式仍是 A3 软信任；没有可验证身份/Token 时不得升级安全宣传口径。
 
 ### 运维与质量风险

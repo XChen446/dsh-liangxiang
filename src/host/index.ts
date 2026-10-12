@@ -25,7 +25,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { DshHostContext } from '../compat/dsh/host-context.ts'
-import { resolveDshHostServices } from '../compat/dsh/host-services.ts'
+import { resolveDshHostServices, type DshSessionEventSource } from '../compat/dsh/host-services.ts'
 import {
   openLiangxiangLocalPersistence,
   openLiangxiangPersistence,
@@ -146,7 +146,7 @@ export function apply(ctx: DshHostContext): void {
 
   const hydrateOnline = async (candidate: BackendLiangService, core: LiangxiangPersistenceHandle): Promise<void> => {
     const persisted = await core.port.load()
-    candidate.hydrateUsage(persisted.watermarks, persisted.dailyUsage, core.port)
+    candidate.hydrateUsage(persisted.watermarks, persisted.dailyUsage, core.port, persisted.weightPolicies)
     candidate.setAccountingAvailable(accountingAvailable)
     candidate.attachCommunityIdentity(await core.identity.resolve())
   }
@@ -409,7 +409,7 @@ export function apply(ctx: DshHostContext): void {
           return
         }
         service.observeUsage(sessionId, value, origin, modelId)
-      })
+      }, scoped as unknown as DshSessionEventSource, warn)
       return () => {
         disposeFeed()
         accountingAvailable = false

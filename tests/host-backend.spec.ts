@@ -16,6 +16,11 @@ import { wireToViewState } from '../src/client/store.ts'
 import { parseWireState } from '../src/shared/wire.ts'
 import { createMutableClock, DAY_MS, FIXED_NOW } from './helpers/backend.ts'
 import { parseV1HistoryResponse } from '../src/shared/index.ts'
+import { DEFAULT_INCENSE_WEIGHT_POLICY } from '../src/domain/index.ts'
+import { nativeUsageSession, sample, finalMessage } from './helpers/dsh-usage.ts'
+import { attachUsageObservation } from '../src/compat/dsh/usage-observer.ts'
+import type { DshSessionRef, DshSessionEventSource } from '../src/compat/dsh/host-services.ts'
+import type { DshUsageEvent } from '../src/compat/dsh/settled-usage.ts'
 
 const INSTALLATION = 'inst-e2e-000001'
 const SESSION = 'session-e2e-1'
@@ -30,6 +35,82 @@ interface Stack {
 }
 
 let stack: Stack | null = null
+
+describe('final DSH usage with server-distributed model rules', () => {
+  it('does not mistake the 10-stick gift for usage already claimed during cold startup', async () => {
+    const identity = generateCommunityKeypair('c'.repeat(64))
+    const s = await startStack({}, {
+      start: Date.UTC(2026, 9, 12, 4), signedIdentity: identity,
+      beforeBootstrap: (host, clock) => host.observeUsage('cold-start', {
+        kind: 'settled-requests', throughOffset: 3,
+        requests: [{ startOffset: 1, endOffset: 3, endedAt: clock.now(), provider: 'deepseek-official', model: 'deepseek-flash', inputTokens: 50_000, outputTokens: 0 }],
+      }, { kind: 'live', firstLiveSeq: 0 }),
+    })
+    await waitFor(() => s.backend.dailyState(identity.installationId).authoritative_personal_state.remaining_incense === 11, 'cold startup usage plus gift')
+    expect(frame(s).personal.effectiveTokensToday).toBe(550_000)
+    expect(s.backend.dailyState(identity.installationId).authoritative_personal_state.starter_tokens).toBe(500_000)
+  })
+
+  it('preserves final usage across an offline midnight and credits it after the server confirms the new date', async () => {
+    const identity = generateCommunityKeypair('d'.repeat(64))
+    const s = await startStack({}, { start: Date.UTC(2026, 9, 12, 4), signedIdentity: identity })
+    await s.stopNetwork()
+    await s.host.refreshNow()
+    expect(frame(s).authorityAvailable).toBe(false)
+    s.clock.advance(DAY_MS)
+    s.host.observeUsage('overnight', {
+      kind: 'settled-requests', throughOffset: 3,
+      requests: [{ startOffset: 1, endOffset: 3, endedAt: s.clock.now(), provider: 'deepseek-official', model: 'deepseek-flash', inputTokens: 50_000, outputTokens: 0 }],
+    }, { kind: 'live', firstLiveSeq: 0 })
+    await s.startNetwork()
+    // The ordinary reconnect backoff remains in force.
+    await waitFor(() => { s.host.tick(); return frame(s).authorityAvailable }, 'new-day reconnect', 3_000)
+    await waitFor(() => s.backend.dailyState(identity.installationId).authoritative_personal_state.remaining_incense === 11, 'new-day gift plus final offline usage')
+    expect(frame(s).businessDate).toBe('2026-10-13')
+  })
+
+  it('credits final per-request usage through real HTTP, keeps the gift and publishes the same rule for the tooltip', async () => {
+    const identity = generateCommunityKeypair('b'.repeat(64))
+    const policy = {
+      ...DEFAULT_INCENSE_WEIGHT_POLICY, revision: 4, version: 'server-test-v4',
+      rules: [{ label: '后台新模型', model: 'future-route', weightBps: 10_000 }, ...DEFAULT_INCENSE_WEIGHT_POLICY.rules],
+    }
+    const s = await startStack({ LIANGXIANG_INCENSE_WEIGHT_POLICY: JSON.stringify(policy) }, {
+      start: Date.UTC(2026, 9, 12, 4), signedIdentity: identity,
+    })
+    const session = nativeUsageSession('final-http')
+    let listener: ((session: DshSessionRef, event: DshUsageEvent) => void) | null = null
+    const source: DshSessionEventSource = { on: (_name, callback) => {
+      listener = callback
+      return () => { listener = null }
+    } }
+    const dispose = attachUsageObservation(
+      { onChanged: () => () => undefined, snapshot: () => ({ asOfSeq: -1, values: {} }) },
+      { list: () => [session] }, (id, value, origin) => s.host.observeUsage(id, value, origin), source,
+    )
+    const append = (type: string, data: unknown) => {
+      const event = type === 'assistant/message' ? session.append(type, data, { surfaceOp: 'append' }) : session.append(type, data)
+      listener?.(session, event)
+    }
+    try {
+      expect(frame(s).personal.remainingIncense).toBe(10)
+      append('step/start', { turn: 1, step: 1 })
+      append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000) } })
+      expect(frame(s).personal.effectiveTokensToday).toBe(500_000)
+      append('assistant/message', finalMessage(sample(50_000), 'future-route'))
+      append('step/end', { turn: 1, step: 1 })
+      await waitFor(() => s.backend.dailyState(identity.installationId).authoritative_personal_state.remaining_incense === 11, 'final usage claim')
+      await s.host.refreshNow()
+      const wire = frame(s)
+      expect(wire.personal.remainingIncense).toBe(11)
+      expect(wire.incenseWeightPolicy?.version).toBe('server-test-v4')
+      expect(wireToViewState(wire, 'live').incenseWeightPolicy).toEqual(wire.incenseWeightPolicy)
+      const accepted = await s.host.vote({ caseId: wire.activeCase.id, voteType: 'up', requestId: 'final-rule-vote-0001' })
+      expect(accepted.result.status).toBe('accepted')
+      expect(accepted.state.personal.remainingIncense).toBe(10)
+    } finally { dispose() }
+  })
+})
 
 /** Cumulative DSH `tokenUsage` projection value (four disjoint buckets). */
 function usage(uncachedInput: number, cacheRead: number, cacheWrite: number, output: number): unknown {
@@ -59,6 +140,7 @@ async function startStack(
     start?: number
     signedIdentity?: CommunityKeypair
     existingFingerprintOwner?: CommunityKeypair
+    beforeBootstrap?: (host: BackendLiangService, clock: ReturnType<typeof createMutableClock>) => void
   } = {},
 ): Promise<Stack> {
   const config = resolveBackendConfig(
@@ -110,6 +192,7 @@ async function startStack(
     identityRef,
   })
   host.setAccountingAvailable(true)
+  hostOptions.beforeBootstrap?.(host, clock)
   if (hostOptions.signedIdentity === undefined) host.attachIdentity(INSTALLATION)
   else host.attachCommunityIdentity(hostOptions.signedIdentity)
   await host.refreshBootstrap()

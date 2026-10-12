@@ -10,7 +10,7 @@
  * Presentational only (no hooks); the container wires state and callbacks.
  */
 import type { CSSProperties, KeyboardEvent, PointerEvent, ReactElement } from 'react'
-import { LIANG_POSITION_DECIMALS, VOTE_COUNT_MAX, formatCompactCount, formatIncenseShare, formatRatioPercents, type LocalEpithet, type LocalIncenseStats, type VoteType } from '../domain/index.ts'
+import { LIANG_POSITION_DECIMALS, VOTE_COUNT_MAX, formatCompactCount, formatIncenseShare, formatRatioPercents, incenseWeightRows, LEGACY_INCENSE_WEIGHT_POLICY, type LocalEpithet, type LocalIncenseStats, type VoteType } from '../domain/index.ts'
 import {
   ABSURD_CLAIM_NOTICE,
   ACCOUNTING_UNAVAILABLE_HINT,
@@ -28,7 +28,6 @@ import {
   NEXT_INCENSE_LABEL,
   NEXT_INCENSE_PROGRESS_LABEL,
   NEXT_INCENSE_UNIT,
-  NEXT_INCENSE_WEIGHT_ROWS,
   NEXT_INCENSE_WEIGHT_TITLE,
   NO_INCENSE_REASON,
   OFFLINE_REASON,
@@ -612,6 +611,7 @@ const PANEL_CSS = `
   top: calc(100% - 8px);
   z-index: 3;
   min-width: 168px;
+  max-width: calc(100vw - 32px);
   padding: 6px 8px;
   border-radius: 10px;
   border: 1px solid ${color.border};
@@ -728,6 +728,8 @@ const PANEL_CSS = `
   padding: 2px 4px;
   text-align: left;
   font-weight: 500;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 [data-liangxiang-weight-hint] caption {
   caption-side: top;
@@ -1257,8 +1259,8 @@ export function Panel(props: PanelProps): ReactElement {
             <table>
               <caption>{NEXT_INCENSE_WEIGHT_TITLE}</caption>
               <tbody>
-                {NEXT_INCENSE_WEIGHT_ROWS.map((row) => (
-                  <tr key={row.model}>
+                {incenseWeightRows(state.incenseWeightPolicy ?? LEGACY_INCENSE_WEIGHT_POLICY, personal.tokenPerIncense).map((row) => (
+                  <tr key={`${row.model}:${row.weight}`}>
                     <th scope="row">{row.model}</th>
                     <td>{row.weight}</td>
                     <td>{row.stick}</td>

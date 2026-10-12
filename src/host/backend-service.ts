@@ -154,8 +154,9 @@ export class BackendLiangService implements LiangHostService {
     watermarks: Map<string, SessionUsageWatermark>,
     daily: Map<string, DailyUsageRecord>,
     sink: UsageProjectionSink,
+    policies?: readonly import('../domain/incense-weight.ts').IncenseWeightPolicy[],
   ): void {
-    this.usage.hydrate(watermarks, daily, sink)
+    this.usage.hydrate(watermarks, daily, sink, policies)
     this.scheduleClaim()
   }
 
@@ -200,8 +201,17 @@ export class BackendLiangService implements LiangHostService {
     origin: UsageObservationOrigin,
     modelId?: string | null,
   ): void {
-    if (!this.usage.observe(sessionId, value, origin, modelId, this.businessDate || undefined)) return
+    // Pending observation uses the last server time/timezone anchor. The
+    // backend's actual business_date still decides which bucket is claimable.
+    // This preserves new-day work during an outage or the snapshot-rollover gap.
+    const observedDate = this.bootstrap === null ? undefined : this.usage.localBusinessDate()
+    if (!this.usage.observe(sessionId, value, origin, modelId, observedDate)) return
     this.bump()
+    if (observedDate !== undefined && observedDate !== this.businessDate) {
+      // Confirm a projected rollover with the server before claiming it.
+      void this.refreshBootstrap()
+      return
+    }
     this.scheduleClaim()
   }
 
@@ -310,6 +320,7 @@ export class BackendLiangService implements LiangHostService {
     const usage = this.usage.recordFor(this.businessDate)
     return {
       schemaVersion: WIRE_SCHEMA_VERSION,
+      incenseWeightPolicy: this.usage.weightPolicyFor(this.businessDate),
       revision: this.revision,
       hostEpoch: this.hostEpoch,
       authorityMode: 'DEV_STAGING_ONLY',
@@ -368,6 +379,7 @@ export class BackendLiangService implements LiangHostService {
     const remainingIncense = Math.floor(effectiveTokensToday / DEFAULT_TOKEN_PER_INCENSE)
     return {
       schemaVersion: WIRE_SCHEMA_VERSION,
+      incenseWeightPolicy: this.usage.weightPolicyFor(businessDate),
       revision: this.revision,
       hostEpoch: this.hostEpoch,
       authorityMode: 'DEV_STAGING_ONLY',
@@ -532,9 +544,12 @@ export class BackendLiangService implements LiangHostService {
     this.broadcast = bootstrap.broadcast
     this.snapshotSequenceApplied = bootstrap.global_snapshot.sequence
     this.businessDate = bootstrap.business_date
+    if (bootstrap.token_policy.model_weights_invalid) this.warn('[dsh-liangxiang] malformed optional model rules; keeping cached rules')
+    if (bootstrap.token_policy.model_weights !== undefined) this.usage.adoptWeightPolicy(bootstrap.token_policy.model_weights)
     const archiveMoved = bootstrap.archive_version > this.archiveVersion
     this.archiveVersion = bootstrap.archive_version
     this.usage.alignDailyBucket(this.businessDate)
+    this.usage.setBusinessDates(createBusinessDateProvider(bootstrap.business_timezone), bootstrap.server_time)
     this.syncDisplayBaselineFromLedger()
     this.bump()
     if (archiveMoved && this.historyArchive !== null) void this.refreshHistory()
@@ -575,7 +590,7 @@ export class BackendLiangService implements LiangHostService {
 
   /**
    * Submit the claimable Token figure (server ledger + unclaimed local suffix).
-   * Debounced: token observations arrive per streamed chunk.
+   * Debounced: several completed attempts may arrive in one replay batch.
    */
   private scheduleClaim(): void {
     if (this.disposed || this.installationId === null || this.claimTimer !== null) return
@@ -677,7 +692,9 @@ export class BackendLiangService implements LiangHostService {
   private syncDisplayBaselineFromLedger(): void {
     const locallyObserved = this.usage.effectiveTokensFor(this.businessDate)
     const claimed = this.personal?.claimed_effective_tokens ?? 0
-    this.displayBaseline = Math.min(claimed, locallyObserved)
+    // The welcome credit is not proof that local usage was already claimed.
+    const claimedUsage = Math.max(0, claimed - (this.personal?.starter_tokens ?? 0))
+    this.displayBaseline = Math.min(claimedUsage, locallyObserved)
   }
 
   private requireIdentity(): string {

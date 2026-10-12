@@ -104,7 +104,8 @@ Rules:
   incense or the global 梁位. Respect `prefers-reduced-motion`.
 - right overlay: personal `tokens_to_next_incense` in **Pro 当量** (not raw
   Flash Token). Hover/focus on 下一炷 shows the model-weight table
-  (Pro ×1 / Flash ×0.5 / 其它 ×0.5).
+  from the same effective rule data used by accounting (Pro / new Flash ×1,
+  real legacy Flash / unknown ×0.5); never maintain a second static table.
 - visible 下一炷 当量 uses integer compact (`33K`, never `≈ 33.4K`) so the
   flank does not overlap 梁子. Hover title and the screen-reader summary keep
   the exact integer. 今日凝香 / 环上 overflow 仍可用一位小数。
@@ -463,18 +464,36 @@ Rules:
 
 ### Local model earning rate
 
-After Effective Token is computed for one usage **delta**, the Host scales it
-by the DSH route model id (exact id, never a display name):
+After a billed request attempt closes, the Host scales its final provider
+usage by that attempt's route/source IDs (never the session's latest model
+or a display name). User-approved two-tier policy, 2026-10-12:
 
 ```text
-deepseek-v4-pro    → 1
-deepseek-v4-flash  → 0.5
+DeepSeek Pro family (including future version IDs) → 1
+deepseek-flash / new numbered Flash family        → 1
+real legacy deepseek-v4-flash / vision-exp         → 0.5
 missing / unknown / other model ids → 0.5
 ```
 
-1 炷 is still `50,000` **Pro-equivalent** tokens. Flash and every non-Pro
-route need ~100k raw tokens for one stick. Vote power is unchanged (1 炷 = 1 vote). The daily
-claim sent to the backend is already weighted; do not send model names.
+Official `deepseek-official` / `deepseek` legacy Flash aliases now serve
+V4.1 Flash and earn ×1; another provider's real legacy model stays ×0.5.
+1 炷 is still `50,000` **Pro-equivalent** tokens. Half-rate routes need
+100k raw tokens. Vote power remains 1 炷 = 1 vote; the backend claim is
+already weighted and never sends model names or session content.
+
+Rules are bounded, ordered wildcard data in bootstrap `token_policy.model_weights`;
+backend `LIANGXIANG_INCENSE_WEIGHT_POLICY` can add aliases/overrides without
+client code changes. Hosts cache valid revisions, keep a day's selected rules
+after its first settlement, and preserve cached rules through outages/restarts.
+Malformed optional rules must not disable voting. Details: `docs/INCENSE_POLICY.md`.
+
+Streaming usage is provisional: final `assistant/message` replaces its latest
+sample; `llm/retry` / `step/end` closes a failed/interrupted attempt with its
+last provider sample. A durable per-session settlement cursor prevents replay,
+restart and mode-switch double credit. First observations fence inherited and
+pre-upgrade history. Never estimate missing usage or use a timer as finality.
+Daily 10-stick gifts remain in the existing accounting/UI, with no separate
+gift row or section.
 
 ### Personal accounting
 
@@ -984,6 +1003,12 @@ flow, or community backend contract) must bump `package.json` `version` and
 version number. Keep both strings identical; `tests/manifest.spec.ts` guards
 this. Historical changelog entries stay frozen.
 
+Current explicit user exception (2026-10-12 model-rule/settlement batch): keep
+the package/plugin/server numbers unchanged while this batch is developed and
+commit/push the verified batch together. This is unreleased source, not a new
+1.1.6 artifact. Before any formal publication/deployment, stamp the appropriate
+new release/build identity and run the normal release gates.
+
 Before preparing npm or GitHub release copy, read and follow
 `.agents/skills/liangxiang-release-notes/SKILL.md`. The client update dialog
 summarizes all user-visible benefits since the previous formal release in at
@@ -1132,7 +1157,8 @@ Before completing any major Liangxiang change, be able to answer **yes** to all 
 - Are global ratios and Liangzi state from the same snapshot/version?
 - Is Effective Token still Input + Output?
 - Are cache-read and cache-write both counted as Input under the verified current DSH mapping?
-- Are Flash, missing/unknown, and all other non-Pro routes earning incense at half Pro rate locally (Pro-equivalent claim), without sending model names to the server?
+- Are Pro/new Flash ×1 and real legacy Flash/unknown ×0.5 selected from the same effective rule data as the tooltip, without sending model names to the server?
+- Are requests settled from final provider usage with their own route, and replay/restart/mode-switch protected by the shared settlement cursor?
 - Is the client prevented from self-authorizing production vote capacity?
 - Are concurrency and idempotency enforced by the authoritative layer?
 - Does today render only 今日进行中 and stay out of every historical aggregate?

@@ -23,6 +23,8 @@ import {
   normalizeDshTokenUsage,
 } from '../compat/dsh/token-usage.ts'
 import type { UsageObservationOrigin } from '../compat/dsh/usage-observer.ts'
+import { isSettledUsageBatch } from '../compat/dsh/settled-usage.ts'
+import { WeightPolicyCatalog } from './weight-policy.ts'
 import {
   applyAcceptedVotes,
   clampVoteSpend,
@@ -44,6 +46,7 @@ import {
   type PersonalLiangQiState,
   type LiangWeekArchive,
   voteBudgetAvailable,
+  type IncenseWeightPolicy,
   type VoteRejectionReason,
   type VoteResult,
 } from '../domain/index.ts'
@@ -59,6 +62,8 @@ import {
   creditObservedUsage,
   EMPTY_DAILY_USAGE,
   foldUsageObservation,
+  creditSettledUsageBatch,
+  mergeUsageWatermark,
   type DailyUsageRecord,
   type SessionUsageWatermark,
 } from './usage-ledger.ts'
@@ -107,6 +112,7 @@ export type PersistedVoteRecord = PersistedAcceptedVoteRecord | PersistedRejecte
 
 /** Everything the persistence adapter loads back at boot. */
 export interface LiangPersistedState {
+  weightPolicies?: readonly IncenseWeightPolicy[]
   watermarks: Map<string, SessionUsageWatermark>
   dailyUsage: Map<string, DailyUsageRecord>
   ledgers: Map<string, { usedIncense: number }>
@@ -120,6 +126,7 @@ export interface LiangPersistedState {
 
 /** Write-behind persistence port (implemented over the DSH storage domain). */
 export interface LiangPersistencePort {
+  putWeightPolicies?: (policies: readonly IncenseWeightPolicy[]) => void
   load(): Promise<LiangPersistedState>
   /** Wait until every previously queued local-domain write is durable. */
   flush(): Promise<void>
@@ -169,6 +176,7 @@ export class FakeAuthoritativeLiangService {
   }> = []
 
   private watermarks = new Map<string, SessionUsageWatermark>()
+  private readonly weightPolicies = new WeightPolicyCatalog(() => this.dates.businessDateOf(this.clock.now()))
   private dailyUsage = new Map<string, DailyUsageRecord>()
   private ledgers = new Map<string, { usedIncense: number }>()
   private aggregates = new Map<string, GlobalVoteAggregate>()
@@ -216,20 +224,20 @@ export class FakeAuthoritativeLiangService {
   /** Hydrate from storage, then adopt the port for write-behind persistence. */
   async attachPersistence(port: LiangPersistencePort): Promise<void> {
     const persisted = await port.load()
+    this.weightPolicies.hydrate(persisted.weightPolicies, port.putWeightPolicies)
     for (const [sessionId, persistedMark] of persisted.watermarks) {
       const current = this.watermarks.get(sessionId)
       this.watermarks.set(sessionId, current === undefined
         ? { ...persistedMark }
-        : {
-          inputHwm: Math.max(current.inputHwm, persistedMark.inputHwm),
-          outputHwm: Math.max(current.outputHwm, persistedMark.outputHwm),
-        })
+        : mergeUsageWatermark(current, persistedMark))
     }
     for (const [date, persistedDay] of persisted.dailyUsage) {
       const current = this.dailyUsage.get(date)
       this.dailyUsage.set(date, current === undefined
         ? { ...persistedDay }
         : {
+          ...persistedDay,
+          ...(current.weightPolicy === undefined ? {} : { weightPolicy: current.weightPolicy }),
           inputTokens: Math.max(current.inputTokens, persistedDay.inputTokens),
           outputTokens: Math.max(current.outputTokens, persistedDay.outputTokens),
           weightCarry: Math.max(current.weightCarry, persistedDay.weightCarry),
@@ -293,6 +301,23 @@ export class FakeAuthoritativeLiangService {
       this.pendingObservations.push({ sessionId, value, origin, modelId })
       return
     }
+    if (isSettledUsageBatch(value)) {
+      this.rotateToCurrentDate()
+      const day = this.dailyUsage.get(this.currentDate) ?? EMPTY_DAILY_USAGE
+      const settled = creditSettledUsageBatch(
+        this.watermarks.get(sessionId), day, value, origin,
+        day.weightPolicy ?? this.weightPolicies.forDate(this.currentDate), this.currentDate,
+        instant => this.dates.businessDateOf(instant),
+      )
+      this.watermarks.set(sessionId, settled.watermark)
+      this.persistence?.putWatermark(sessionId, settled.watermark)
+      if (settled.record !== day) {
+        this.dailyUsage.set(this.currentDate, settled.record)
+        this.persistence?.putDailyUsage(this.currentDate, settled.record)
+        this.bump()
+      }
+      return
+    }
     if (!isDshTokenUsageBuckets(value)) {
       this.warn(`[dsh-liangxiang] ignoring malformed tokenUsage projection for session ${sessionId}`)
       return
@@ -316,7 +341,8 @@ export class FakeAuthoritativeLiangService {
     if (fold.deltaInput === 0 && fold.deltaOutput === 0) return
     const now = this.clock.now()
     const day = this.dailyUsage.get(this.currentDate) ?? EMPTY_DAILY_USAGE
-    const updated = creditObservedUsage(day, fold.deltaInput, fold.deltaOutput, modelId, now)
+    const updated = creditObservedUsage(day, fold.deltaInput, fold.deltaOutput, modelId, now,
+      day.weightPolicy ?? this.weightPolicies.forDate(this.currentDate))
     this.dailyUsage.set(this.currentDate, updated)
     this.persistence?.putDailyUsage(this.currentDate, updated)
     this.bump()
@@ -540,6 +566,7 @@ export class FakeAuthoritativeLiangService {
     const personal = this.derivePersonal()
     return {
       schemaVersion: WIRE_SCHEMA_VERSION,
+      incenseWeightPolicy: usage.weightPolicy ?? this.weightPolicies.forDate(this.currentDate),
       revision: this.revision,
       hostEpoch: this.hostEpoch,
       authorityMode: 'LOCAL_FAKE_DEV',

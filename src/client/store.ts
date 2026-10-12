@@ -18,6 +18,9 @@ import {
   type PublicLiangSnapshot,
   type VoteResult,
   type VoteType,
+  type IncenseWeightPolicy,
+  DEFAULT_INCENSE_WEIGHT_POLICY,
+  LEGACY_INCENSE_WEIGHT_POLICY,
 } from '../domain/index.ts'
 import { DEFAULT_CASE_TITLE } from '../shared/index.ts'
 import type { AuthorityMode, LiangxiangWireState, WireBroadcast } from '../shared/wire.ts'
@@ -26,6 +29,7 @@ export type ConnectionState = 'connecting' | 'live' | 'offline'
 
 /** Everything the panel renders, in one immutable snapshot. */
 export interface LiangxiangViewState {
+  incenseWeightPolicy?: IncenseWeightPolicy
   connection: ConnectionState
   /** Online authority reachability; independent from browser -> Host SSE. */
   authorityAvailable: boolean
@@ -69,6 +73,7 @@ export interface LiangxiangStore {
 /** Derive the render state from one validated wire frame (raw counts in, domain invariants out). */
 export function wireToViewState(wire: LiangxiangWireState, connection: ConnectionState): LiangxiangViewState {
   return {
+    incenseWeightPolicy: wire.incenseWeightPolicy ?? LEGACY_INCENSE_WEIGHT_POLICY,
     connection,
     authorityAvailable: wire.authorityAvailable,
     authorityReason: wire.authorityReason,
@@ -126,6 +131,7 @@ export function createOfflineViewState(connection: ConnectionState): LiangxiangV
     archiveVersion: 0,
     accountingAvailable: false,
     accountingNotice: null,
+    incenseWeightPolicy: DEFAULT_INCENSE_WEIGHT_POLICY,
     broadcast: null,
     // Connecting/offline is not a mode switch. Default online so a dead
     // backend cannot paint 今日梁案（本地） from this placeholder.

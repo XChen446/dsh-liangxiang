@@ -579,6 +579,7 @@ export class LiangxiangBackendService {
       token_policy: {
         token_per_incense: caseRow.token_per_incense,
         effective_token_formula: 'input_plus_output',
+        model_weights: this.config.incenseWeightPolicy,
       },
       liangzi_policy: {
         version: LIANGZI_POLICY_VERSION,
@@ -1301,6 +1302,7 @@ export class LiangxiangBackendService {
     return {
       business_date: caseRow.business_date,
       claimed_effective_tokens: personal.effectiveTokensToday,
+      starter_tokens: row?.starter_tokens ?? 0,
       claim_source: CLAIM_SOURCE_HOST_OBSERVED,
       claim_verified: false,
       earned_incense: personal.earnedIncenseToday,

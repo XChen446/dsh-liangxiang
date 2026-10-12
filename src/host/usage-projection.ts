@@ -1,6 +1,6 @@
 /**
- * Local observed-usage projection: cumulative DSH `tokenUsage` values folded
- * into per-business-date totals through the pure watermark helpers.
+ * Local request-settlement ledger. Real DSH feeds finalized per-attempt
+ * provider usage; the cumulative entry remains for isolated legacy/dev tests.
  *
  * This is LOCAL OBSERVATION, never authority. In the online path its only job
  * is to produce the daily figure the host submits as a CLAIM; the backend
@@ -9,17 +9,22 @@
  */
 import { isDshTokenUsageBuckets, normalizeDshTokenUsage } from '../compat/dsh/token-usage.ts'
 import type { UsageObservationOrigin } from '../compat/dsh/usage-observer.ts'
-import { computeEffectiveTokens } from '../domain/index.ts'
+import { isSettledUsageBatch } from '../compat/dsh/settled-usage.ts'
+import { computeEffectiveTokens, type IncenseWeightPolicy } from '../domain/index.ts'
+import { WeightPolicyCatalog } from './weight-policy.ts'
 import type { BusinessDateProvider, Clock } from '../shared/business-date.ts'
 import {
   creditObservedUsage,
   EMPTY_DAILY_USAGE,
   foldUsageObservation,
+  creditSettledUsageBatch,
+  mergeUsageWatermark,
   type DailyUsageRecord,
   type SessionUsageWatermark,
 } from './usage-ledger.ts'
 
 export interface UsageProjectionSink {
+  putWeightPolicies?: (policies: readonly IncenseWeightPolicy[]) => void
   putWatermark: (sessionId: string, watermark: SessionUsageWatermark) => void
   putDailyUsage: (businessDate: string, record: DailyUsageRecord) => void
   deleteDailyUsage: (businessDate: string) => void
@@ -32,13 +37,14 @@ export interface UsageProjectionDeps {
 }
 
 export class UsageProjection {
-  private readonly dates: BusinessDateProvider
+  private dates: BusinessDateProvider
   private readonly clock: Clock
   private readonly warn: (message: string) => void
 
   private watermarks = new Map<string, SessionUsageWatermark>()
   private daily = new Map<string, DailyUsageRecord>()
   private sink: UsageProjectionSink | null = null
+  private readonly policies = new WeightPolicyCatalog(() => this.localBusinessDate())
 
   constructor(deps: UsageProjectionDeps) {
     this.dates = deps.dates
@@ -58,22 +64,23 @@ export class UsageProjection {
     watermarks: Map<string, SessionUsageWatermark>,
     daily: Map<string, DailyUsageRecord>,
     sink: UsageProjectionSink,
+    policies?: readonly IncenseWeightPolicy[],
   ): void {
     this.sink = sink
+    this.policies.hydrate(policies, sink.putWeightPolicies)
     for (const [sessionId, persisted] of watermarks) {
       const current = this.watermarks.get(sessionId)
       this.watermarks.set(sessionId, current === undefined
         ? { ...persisted }
-        : {
-          inputHwm: Math.max(current.inputHwm, persisted.inputHwm),
-          outputHwm: Math.max(current.outputHwm, persisted.outputHwm),
-        })
+        : mergeUsageWatermark(current, persisted))
     }
     for (const [date, persisted] of daily) {
       const current = this.daily.get(date)
       this.daily.set(date, current === undefined
         ? { ...persisted }
         : {
+          ...persisted,
+          ...(current.weightPolicy === undefined ? {} : { weightPolicy: current.weightPolicy }),
           inputTokens: Math.max(current.inputTokens, persisted.inputTokens),
           outputTokens: Math.max(current.outputTokens, persisted.outputTokens),
           weightCarry: Math.max(current.weightCarry, persisted.weightCarry),
@@ -85,12 +92,12 @@ export class UsageProjection {
   }
 
   /**
-   * Fold one cumulative observation.
-   * @param modelId - DSH route id for this delta (`deepseek-v4-pro` / `deepseek-v4-flash`);
-   *   only V4-Pro earns at ×1; Flash/missing/unknown/other routes earn at ×0.5.
-   * @param bucketDate - authoritative business date to credit into. Online hosts
-   *   MUST pass the backend's `business_date` so local TZ skew cannot hide
-   *   today's tokens under a different key (AGENTS.md §10).
+   * Fold a final-request batch, or a legacy cumulative observation for dev.
+   * @param modelId - only used by the legacy/dev entry; real batches carry
+   *   each individual request's own route and final usage.
+   * @param bucketDate - observation bucket from the last server clock/zone
+   *   anchor. Only the backend-confirmed business_date is actually claimable;
+   *   a projected next-day bucket waits for rollover confirmation.
    * @returns true when today's total actually grew (worth re-claiming).
    */
   observe(
@@ -100,6 +107,21 @@ export class UsageProjection {
     modelId?: string | null,
     bucketDate?: string,
   ): boolean {
+    if (isSettledUsageBatch(value)) {
+      const date = bucketDate || this.localBusinessDate()
+      const previous = this.watermarks.get(sessionId)
+      const day = this.recordFor(date)
+      const settled = creditSettledUsageBatch(
+        previous, day, value, origin, this.weightPolicyFor(date), date,
+        instant => this.dates.businessDateOf(instant),
+      )
+      this.watermarks.set(sessionId, settled.watermark)
+      this.sink?.putWatermark(sessionId, settled.watermark)
+      if (settled.record === day) return false
+      this.daily.set(date, settled.record)
+      this.sink?.putDailyUsage(date, settled.record)
+      return true
+    }
     if (!isDshTokenUsageBuckets(value)) {
       this.warn(`[dsh-liangxiang] ignoring malformed tokenUsage projection for session ${sessionId}`)
       return false
@@ -128,6 +150,7 @@ export class UsageProjection {
       fold.deltaOutput,
       modelId,
       now,
+      this.weightPolicyFor(businessDate),
     )
     this.daily.set(businessDate, updated)
     this.sink?.putDailyUsage(businessDate, updated)
@@ -167,6 +190,26 @@ export class UsageProjection {
 
   recordFor(businessDate: string): DailyUsageRecord {
     return this.daily.get(businessDate) ?? EMPTY_DAILY_USAGE
+  }
+
+  adoptWeightPolicy(policy: unknown): void {
+    try {
+      this.policies.adopt(policy)
+    } catch {
+      this.warn('[dsh-liangxiang] ignored invalid/reused model rule revision; keeping cached rules')
+    }
+  }
+
+  weightPolicyFor(businessDate: string): IncenseWeightPolicy {
+    return this.recordFor(businessDate).weightPolicy ?? this.policies.forDate(businessDate)
+  }
+
+  setBusinessDates(dates: BusinessDateProvider, serverTime?: number): void {
+    const offset = serverTime === undefined ? 0 : serverTime - this.clock.now()
+    this.dates = {
+      timezone: dates.timezone,
+      businessDateOf: instant => dates.businessDateOf(instant + offset),
+    }
   }
 
   /**

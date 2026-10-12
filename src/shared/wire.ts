@@ -14,6 +14,9 @@ import {
   isVoteType,
   VOTE_COUNT_MAX,
   VOTE_COUNT_MIN,
+  parseIncenseWeightPolicy,
+  LEGACY_INCENSE_WEIGHT_POLICY,
+  type IncenseWeightPolicy,
   type DailyLiangCase,
   type VoteRejectionReason,
   type VoteResult,
@@ -89,6 +92,8 @@ export interface WireBroadcast {
 
 /** One full state frame (GET /state and every SSE frame). */
 export interface LiangxiangWireState {
+  /** The exact locally pinned earning policy; additive for rolling upgrades. */
+  incenseWeightPolicy?: IncenseWeightPolicy
   schemaVersion: typeof WIRE_SCHEMA_VERSION
   /** Monotonic; stale frames must be dropped by the client. */
   revision: number
@@ -256,6 +261,9 @@ export function parseWireState(raw: unknown): LiangxiangWireState {
   }
   return {
     schemaVersion: WIRE_SCHEMA_VERSION,
+    incenseWeightPolicy: record.incenseWeightPolicy === undefined
+      ? LEGACY_INCENSE_WEIGHT_POLICY
+      : parseIncenseWeightPolicy(record.incenseWeightPolicy),
     revision: requireCount(record.revision, 'state.revision'),
     hostEpoch: requireCount(record.hostEpoch, 'state.hostEpoch'),
     authorityMode,

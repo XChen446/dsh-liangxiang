@@ -4,6 +4,7 @@ import { resolveHostRuntimeConfig } from '../src/host/config.ts'
 import { STAGING_BACKEND_URL } from '../src/host/community-endpoint.ts'
 import { LOCAL_CASE_TITLES, nextLocalCaseIndex } from '../src/host/local-cases.ts'
 import { runOperatorCli } from '../src/backend/cli.ts'
+import { DEFAULT_INCENSE_WEIGHT_POLICY } from '../src/domain/index.ts'
 import { PLUGIN_VERSION, SERVER_BUILD } from '../src/shared/index.ts'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -67,6 +68,15 @@ describe('identity mutation rate limit', () => {
 })
 
 describe('operator CLI', () => {
+  it('validates and displays model-rule data without opening a database', () => {
+    const logs: string[] = []
+    const io = { log: (line: string) => logs.push(line), error: (line: string) => logs.push(line) }
+    const env = { LIANGXIANG_BACKEND_DB: '/this-path-must-not-be-opened/database.sqlite' }
+    expect(runOperatorCli(['rules', 'validate', JSON.stringify(DEFAULT_INCENSE_WEIGHT_POLICY)], env, io)).toBe(0)
+    expect(runOperatorCli(['rules', 'show'], env, io)).toBe(0)
+    expect(logs.join('\n')).toContain('incense-weight-v3-model-families')
+    expect(runOperatorCli(['rules', 'validate', '{"rules":"bad"}'], env, io)).toBe(2)
+  })
   it('reports the package version without opening the database', () => {
     const logs: string[] = []
     expect(runOperatorCli(

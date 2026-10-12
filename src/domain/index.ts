@@ -16,6 +16,12 @@ export {
 export {
   INCENSE_WEIGHT_POLICY_VERSION,
   INCENSE_WEIGHT_SCALE,
+  DEFAULT_INCENSE_WEIGHT_POLICY,
+  LEGACY_INCENSE_WEIGHT_POLICY,
+  parseIncenseWeightPolicy,
+  incenseWeightRows,
+  type IncenseWeightPolicy,
+  type IncenseWeightRule,
   canonicalModelId,
   incenseWeightBpsForModel,
   scaleTokensByWeightBps,

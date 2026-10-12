@@ -6,6 +6,10 @@ DSH 仍处于 Developer Preview，任何升级都必须重新审计，不能从�
 
 ## 当前基线
 
+2026-10-12 开发增量：重新只读审计同一个 alpha.5 commit，并增加按请求最终用量
+结算与远程模型规则。本批按用户要求暂不升版本，尚未发布/部署；下表的 Published
+与 2026-09-03 安装记录仍专指旧正式包，不能当作新改动已发布的证据。
+
 | 项 | 当前事实 |
 |---|---|
 | 梁相版本 | 1.1.6 |
@@ -54,8 +58,10 @@ clean-profile 在 Host 启动前默认强制本地后端，只有显式提供
 逐文件比较确认以下梁相关键缝在 alpha.5 没有源码变化：DeepSeek 默认模型目录、
 Token meter、DeepSeek session usage、`PLATFORM_MODULES` 与客户端 tsdown wrapper。
 默认模型 ID 仍为 `deepseek-v4-pro`、`deepseek-v4-flash` 和
-`deepseek-v4-flash-vision-exp`。因此当量关系保持 Pro `×1`、Flash `×0.5`，Vision
-与所有未知/其他路由按安全回退 `×0.5`；不新增未经官方证据支持的高权重模型。
+`deepseek-v4-flash-vision-exp`。这仍是旧正式包的 Pro ×1 / Flash ×0.5 证据。
+2026-10-12 用户批准的未发布规则改为 Pro/新 Flash ×1、真正旧 Flash/未知 ×0.5。
+官方两个旧 Flash 别名已转到 V4.1 Flash；供应商限定的例外和未来模型族通配见
+`INCENSE_POLICY.md`，不根据旧目录显示名判断实际代际。
 
 ## 触点与稳定性
 
@@ -67,10 +73,10 @@ Token meter、DeepSeek session usage、`PLATFORM_MODULES` 与客户端 tsdown wr
 | 客户端 `Context` / `ctx.slots` | 公开包类型 | `packages/client/ui-renderer/src/client/index.ts`：Cordis `Context` augmentation、`UiRendererService`、`apply`; `packages/client/ui-renderer/src/client/registry.ts`：`SlotRegistry.inject` / `register` | 旧 `dsh-client-runtime` 已删除；从 Cordis 导出 Context，并 type-only 导入 `@deepseek-ai/dsh-client-ui-renderer/client` 激活增强 |
 | `shell.overlay` | 公开、文档化槽位 | `packages/client/ui-layout/src/client/index.ts`：`SlotMap['shell.overlay']` 及 root children declaration；`packages/client/ui-renderer/src/client/registry.ts` 的槽位说明 | additive、root-scope 的 frame-wide 浮层；`overlay-slot.ts` 仅 type-only 导入 layout 的槽位增强 |
 | `sessionProjections` | 公开服务 | `packages/session/session-projection/src/index.ts`：`ProjectionChangeListener`、`SessionProjectionRegistry.onChanged`、`snapshot` | change feed 给出整个当前 view；snapshot 是同一 log cursor 的一致切面 |
-| `sessions` / route metadata | 公开 Session API | `packages/core/session/src/index.ts`：`Session.firstLiveSeq`、`SessionStore.list`、`Session.requestHeader`、`Session.requestContext`; `packages/core/session/src/types.ts`：`EpochHeader`、`RequestContext` | `firstLiveSeq` 运行时仍是 number；`config.model` / `model` 是精确 route id，不是显示名 |
+| `sessions` / route / lifecycle | 公开 Session API | `packages/core/session/src/index.ts`：`Session.firstLiveSeq`、`SessionStore.list`、`Session.snapshotEvents`、`session/event`（append 后同步通知）、`Session.requestHeader`、`Session.requestContext`; `packages/core/session/src/types.ts`：`EpochHeader`、`RequestContext`、`SessionEventMap` | 精确 route/source ID 和已记录请求边界；全历史只读扫描一次，正常工作 O(1) fold；不复制/持久化正文 |
 | `webServer.register` | 公开服务 | `packages/host/webserver/src/index.ts`：`WebRoute`、`WebServer.register` | `exact` / `prefix` 形状和 disposer 仍匹配 |
 | `storageDomain.open` | 公开服务 | `packages/storage/storage-domain/src/index.ts`：`DomainFacility.open`; `src/spec.ts`：`DomainSpec`; `src/domain.ts`：`KvTable`、`Domain` | 当前结构适配覆盖 get/entries/put/delete/table/close；新增可选 spec 字段不破坏梁相 |
-| `tokenUsage` 四桶 | 公开投影 | `packages/llm/token-meter/src/projection.ts`：`TokenUsageProjection`; `src/usage-projection.ts`：`bucketsFrom`、`tokenUsageProjectionDefinition`; `packages/llm/llm/src/types.ts`：`TokenUsage` | 四桶互斥；reasoning 已包含在 output；当前归一化正确，但累计值不保证单调，见下节 |
+| 服务商用量与尝试结算 | 公开事件/投影 | `packages/llm/token-meter/src/projection.ts`：`TokenUsageProjection`; `src/usage-projection.ts`：`bucketsFrom`、`tokenUsageProjectionDefinition`; `src/turn-usage.ts`：`deriveTurnTokenUsage`; `packages/llm/llm/src/types.ts`：`TokenUsage`; `packages/llm/llm-retry/src/types.ts`：`llm/retry` / `llm/retry-started` | 四桶互斥、reasoning 是输出子集；最终 message 替换同 attempt 的 chunk，失败尝试保留计费用量；原生 DSH numeric fold 对照测试通过 |
 | 浏览器共享模块表与 loader wrapper | **源码级内部缝，最易破** | `packages/client/web/src/platform.ts`：`PLATFORM_MODULES` / `PRELOADED_CLIENT_EXTERNALS`; `packages/client/tsdown.client.ts`：`clientConfig` | 必须逐版本镜像并审计产物；不能视作公共 ABI |
 
 梁相把 Host 服务收敛为 `src/compat/dsh/host-services.ts` 的最小结构面，以减少
@@ -101,27 +107,30 @@ effective_tokens
   会另行累计。
 - replay、snapshot 和 `onChanged` 都提供完整累计值，不是增量。
 
-### OPEN：最终样本下调与不可逆 HWM
+### 已修复于未发布源码：最终样本下调与不可逆 HWM
 
 `packages/llm/token-meter/README.md` 明确说明：最终样本可以修正较早 chunk，
-所以累计投影 **不保证单调**。梁相当前 `src/host/usage-ledger.ts` 对每个桶保存
-max-HWM；它能去除相同 replay，却不能撤销已经产生的信用。
+所以累计投影 **不保证单调**。已发布的 1.1.6 对每个桶保存 max-HWM，存在中间
+样本多计风险；历史信用不追溯扣除。未发布源码的真实 DSH 通道不再直接铸造累计
+live projection，而是读取同一 durable log 的 provider-reported usage：
 
-例如先观察 `input=10, output=2`，最终被修正为 `input=8, output=1`，当前账本会
-保留 12，而真实最终累计是 9。这是潜在多计，不得再描述为“下降方向安全”。
-标准 DeepSeek/pi-ai 路径通常只在终态产生 usage，因而不代表公共契约下风险消失。
+1. 每个活跃请求只暂存最新数值样本；中间 `input=10, output=2` 不铸香。
+2. 最终 message 将其替换为 `input=8, output=1`，只结算 9，并按该 message 的
+   `source.provider/model` 折算；没有新 usage 时保留最后 provider 样本。
+3. `llm/retry` 或没有 message 的 `step/end` 关闭失败/中断尝试；一次已计费失败
+   只结算一次，计划而未开始的重试不产生额外香火。
+4. 逐尝试结算并使用持久化 `settledOffset` / `baselineOffset`，不依赖 debounce
+   推断 finality。工具执行不阻塞已经完成模型请求的凝香反馈。
 
-在修复前必须遵守：
+`tests/helpers/dsh-usage.ts` 从钉住安装解析真正的 `Session` / `TokenMeter`，通过
+公开 registration 捕获生产 `tokenUsage` 单元；未复制其 fold。最终下调、四桶、
+重试序列与这个官方单元逐项对照。另有 mixed-model、seed/fork、restart、跨日、
+模式隔离与真实 HTTP/SQLite 投票回归，详见 `INCENSE_POLICY.md`。
 
-1. 不把 max-HWM 写成已证明正确的最终结算模型。
-2. 不用任意 debounce 冒充 attempt 已结算。
-3. 首选在明确的 attempt/step 结束边界读取 projection snapshot，再产生不可逆
-   Token 信用；projection 仍是数值权威，原始事件只作为结算边界。
-4. 回归测试必须覆盖“chunk 较高、final 下调”的序列。
-
-另一个独立且有意保守的行为：没有持久化 HWM 的已恢复 session，其首次累计值
-会作为 baseline，以免把旧历史重新铸香。这可能少计恢复后第一次观察前的使用，
-但不会多计；不要与 final downward replacement 风险混为一谈。
+有意保守的迁移行为：无结算游标的首次历史和升级时已开始的请求建立 baseline，
+避免把旧样本/继承前缀再次铸香；这可能跳过升级时的一次在途请求。有游标的恢复
+只补它之后的请求，昨日遗漏不会灌入今日。旧累计 HWM helper 仅留作旧存储与
+隔离模拟入口，不能恢复成真实观测算法。
 
 ## 浏览器 bundle 基线
 

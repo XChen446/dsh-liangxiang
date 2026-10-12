@@ -17,6 +17,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { DshHostContext } from './host-context.ts'
+import type { DshUsageEvent } from './settled-usage.ts'
 
 /**
  * Minimal live-session face. `firstLiveSeq` is the seed length (0 for a
@@ -47,6 +48,12 @@ export interface DshSessionRef {
   /** Present on the live DSH session; optional on test stubs. */
   requestHeader?(): DshEpochHeader | undefined
   requestContext?(): DshRequestContext | undefined
+  /** Public Session.snapshotEvents(), alpha.5 db6bdc3576. Read locally only. */
+  snapshotEvents?(): readonly DshUsageEvent[]
+}
+
+export interface DshSessionEventSource {
+  on(name: 'session/event', listener: (session: DshSessionRef, event: DshUsageEvent) => void): () => void
 }
 
 export type DshProjectionChangeListener = (

@@ -30,6 +30,8 @@ import {
   isVoteType,
   VOTE_COUNT_MAX,
   VOTE_COUNT_MIN,
+  parseIncenseWeightPolicy,
+  type IncenseWeightPolicy,
   type LiangziState,
   type LiangziThresholdPolicy,
   type VoteRejectionReason,
@@ -141,6 +143,9 @@ export function communityAuthMessage(input: {
 export const CLAIM_SOURCE_HOST_OBSERVED = 'host_observed_unverified'
 
 export interface V1TokenPolicy {
+  model_weights?: IncenseWeightPolicy
+  /** Parsing diagnostic only; invalid optional rules do not disable voting. */
+  model_weights_invalid?: boolean
   token_per_incense: number
   /** Effective Token = Input + Output (AGENTS.md §5); no cache-read weighting. */
   effective_token_formula: 'input_plus_output'
@@ -163,6 +168,8 @@ export interface V1Case {
 
 /** Authoritative personal daily spend state (backend-owned). */
 export interface V1PersonalState {
+  /** Internal bootstrap reconciliation only; never a separate product row. */
+  starter_tokens?: number
   business_date: string
   /** Unverifiable host-observed claim (A3), ratcheted monotonically. */
   claimed_effective_tokens: number
@@ -469,6 +476,8 @@ export function parseV1PersonalState(raw: unknown, field = 'authoritative_person
   const tokenPerIncense = requireCount(record.token_per_incense, `${field}.token_per_incense`)
   if (tokenPerIncense <= 0) throw new WireError(`${field}.token_per_incense`, 'must be positive')
   const claimed = requireCount(record.claimed_effective_tokens, `${field}.claimed_effective_tokens`)
+  const starter = record.starter_tokens === undefined ? undefined : requireCount(record.starter_tokens, `${field}.starter_tokens`)
+  if (starter !== undefined && starter > claimed) throw new WireError(`${field}.starter_tokens`, 'gift exceeds recorded tokens')
   const used = requireCount(record.used_incense, `${field}.used_incense`)
   const earned = requireCount(record.earned_incense, `${field}.earned_incense`)
   const remaining = requireCount(record.remaining_incense, `${field}.remaining_incense`)
@@ -497,6 +506,7 @@ export function parseV1PersonalState(raw: unknown, field = 'authoritative_person
   return {
     business_date: requireBusinessDate(record.business_date, `${field}.business_date`),
     claimed_effective_tokens: claimed,
+    ...(starter === undefined ? {} : { starter_tokens: starter }),
     claim_source: CLAIM_SOURCE_HOST_OBSERVED,
     claim_verified: false,
     earned_incense: earned,
@@ -586,7 +596,16 @@ function parseTokenPolicy(raw: unknown, field: string): V1TokenPolicy {
   if (record.effective_token_formula !== 'input_plus_output') {
     throw new WireError(`${field}.effective_token_formula`, 'expected input_plus_output')
   }
-  return { token_per_incense: tokenPerIncense, effective_token_formula: 'input_plus_output' }
+  let weights: Pick<V1TokenPolicy, 'model_weights' | 'model_weights_invalid'> = {}
+  if (record.model_weights !== undefined) {
+    try { weights = { model_weights: parseIncenseWeightPolicy(record.model_weights) } }
+    catch { weights = { model_weights_invalid: true } }
+  }
+  return {
+    token_per_incense: tokenPerIncense,
+    effective_token_formula: 'input_plus_output',
+    ...weights,
+  }
 }
 
 function parseLiangziPolicy(raw: unknown, field: string): V1LiangziPolicy {

@@ -6,7 +6,7 @@
  * asking for it is a hard boot failure rather than a silent downgrade — that is
  * the guard that keeps a staging deployment from being relabelled as verified.
  */
-import { DEFAULT_TOKEN_PER_INCENSE } from '../domain/index.ts'
+import { DEFAULT_TOKEN_PER_INCENSE, DEFAULT_INCENSE_WEIGHT_POLICY, parseIncenseWeightPolicy, type IncenseWeightPolicy } from '../domain/index.ts'
 import { AUTHORITY_MODES, type BackendAuthorityMode } from '../shared/backend-v1.ts'
 import { DEFAULT_BUSINESS_TIMEZONE } from '../shared/business-date.ts'
 import { DEFAULT_CASE_TITLE, STARTER_INCENSE_COUNT } from '../shared/index.ts'
@@ -56,6 +56,7 @@ export const DEFAULT_ADMISSION_INVENTORY_TARGET = 1000
 export const DEFAULT_REKEY_COOLDOWN_MS = 30 * 60 * 1000
 
 export interface BackendConfig {
+  incenseWeightPolicy: IncenseWeightPolicy
   authorityMode: BackendAuthorityMode
   host: string
   port: number
@@ -149,7 +150,18 @@ export function resolveBackendConfig(
   if (allowUnsigned && host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
     throw new BackendConfigError('LIANGXIANG_ALLOW_UNSIGNED=1 is permitted only on a loopback backend host')
   }
+  let incenseWeightPolicy = DEFAULT_INCENSE_WEIGHT_POLICY
+  const policyJson = readLiangxiangEnv(env, 'INCENSE_WEIGHT_POLICY')?.trim()
+  if (policyJson) {
+    try {
+      if (policyJson.length > 16_384) throw new Error('policy is too large')
+      incenseWeightPolicy = parseIncenseWeightPolicy(JSON.parse(policyJson))
+    } catch {
+      throw new BackendConfigError('LIANGXIANG_INCENSE_WEIGHT_POLICY must be a valid bounded two-tier policy')
+    }
+  }
   return {
+    incenseWeightPolicy,
     // Narrowed by the membership check + the VERIFIED_PRODUCTION rejection above.
     authorityMode: requestedMode as BackendAuthorityMode,
     host,

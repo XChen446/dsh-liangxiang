@@ -26,6 +26,8 @@ import {
   LIANG_ARCHIVE_AGGREGATION_POLICY_VERSION,
   monthFor,
   VOTE_COUNT_MAX,
+  parseIncenseWeightPolicy,
+  type IncenseWeightPolicy,
 } from '../../domain/index.ts'
 import type {
   LiangPersistedState,
@@ -78,6 +80,10 @@ const watermarkSchema: DshValueSchema = {
     return {
       inputHwm: requireCountField(record, 'inputHwm'),
       outputHwm: requireCountField(record, 'outputHwm'),
+      ...(record.settledOffset === undefined ? {} : {
+        settledOffset: requireCountField(record, 'settledOffset'),
+        baselineOffset: requireCountField(record, 'baselineOffset'),
+      }),
     }
   },
 }
@@ -86,6 +92,7 @@ const dailyUsageSchema: DshValueSchema = {
   parse(raw: unknown): DailyUsageRecord {
     const record = asStoredRecord(raw)
     return {
+      ...(record.weightPolicy === undefined ? {} : { weightPolicy: parseIncenseWeightPolicy(record.weightPolicy) }),
       inputTokens: requireCountField(record, 'inputTokens'),
       outputTokens: requireCountField(record, 'outputTokens'),
       weightCarry: record.weightCarry === undefined ? 0 : requireCountField(record, 'weightCarry'),
@@ -277,8 +284,14 @@ const monthArchiveSchema: DshValueSchema = {
 }
 
 const settingsSchema: DshValueSchema = {
-  parse(raw: unknown): { authorityPreference: HostAuthorityPreference } {
+  parse(raw: unknown): { authorityPreference: HostAuthorityPreference, weightPolicies?: IncenseWeightPolicy[] } {
     const record = asStoredRecord(raw)
+    if (Array.isArray(record.weightPolicies) && record.weightPolicies.length <= 32) {
+      return {
+        authorityPreference: record.authorityPreference === 'local' ? 'local' : 'online',
+        weightPolicies: record.weightPolicies.map(parseIncenseWeightPolicy),
+      }
+    }
     const preference = record.authorityPreference
     if (preference !== 'online' && preference !== 'local') {
       throw new RecordShapeError('authorityPreference must be online/local')
@@ -368,11 +381,12 @@ export interface LiangxiangIdentityPort {
 
 export type LiangxiangCorePersistedState = Pick<
   LiangPersistedState,
-  'watermarks' | 'dailyUsage' | 'ledgers' | 'aggregates' | 'votes'
+  'watermarks' | 'dailyUsage' | 'ledgers' | 'aggregates' | 'votes' | 'weightPolicies'
 >
 
 /** Community/core storage: shared observation HWM plus online claim projection. */
 export interface LiangxiangCorePersistencePort {
+  putWeightPolicies?: (policies: readonly IncenseWeightPolicy[]) => void
   load(): Promise<LiangxiangCorePersistedState>
   putWatermark(sessionId: string, watermark: SessionUsageWatermark): void
   putDailyUsage(businessDate: string, record: DailyUsageRecord): void
@@ -435,6 +449,8 @@ export async function openLiangxiangPersistence(
       // Reads are synchronous from validated in-memory state (open already
       // parsed every record through the schemas above).
       return Promise.resolve({
+        weightPolicies: settingsTable.get('model_weights') === undefined ? []
+          : ((settingsSchema.parse(settingsTable.get('model_weights')) as { weightPolicies?: IncenseWeightPolicy[] }).weightPolicies ?? []),
         watermarks: loadTable(watermarks, (raw) => watermarkSchema.parse(raw) as SessionUsageWatermark),
         dailyUsage: loadTable(dailyUsage, (raw) => dailyUsageSchema.parse(raw) as DailyUsageRecord),
         ledgers: loadTable(ledgers, (raw) => ledgerSchema.parse(raw) as { usedIncense: number }),
@@ -445,6 +461,14 @@ export async function openLiangxiangPersistence(
     putWatermark: (sessionId, watermark) => writeBehind('watermark', () => watermarks.put(sessionId, watermark)),
     putDailyUsage: (businessDate, record) => writeBehind('daily_usage', () => dailyUsage.put(businessDate, record)),
     deleteDailyUsage: (businessDate) => writeBehind('daily_usage-delete', () => dailyUsage.delete(businessDate)),
+    putWeightPolicies: policies => {
+      // Old 1.1.6 validates every settings row as an authorityPreference.
+      // Keep that harmless compatibility field so rollback cannot break the
+      // entire domain/identity. Mode selection reads SETTINGS_KEY only, never
+      // this cache row, and policy writes never change the actual preference.
+      const preference = (settingsTable.get(SETTINGS_KEY) as { authorityPreference?: HostAuthorityPreference } | undefined)?.authorityPreference ?? 'online'
+      writeBehind('model_weights', () => settingsTable.put('model_weights', { authorityPreference: preference, weightPolicies: policies }))
+    },
   }
 
   const identity: LiangxiangIdentityPort = {
@@ -549,6 +573,7 @@ export async function openLiangxiangLocalPersistence(
       const shared = await core.port.load()
       return {
         watermarks: shared.watermarks,
+        weightPolicies: shared.weightPolicies ?? [],
         dailyUsage: loadTable(dailyUsage, raw => dailyUsageSchema.parse(raw) as DailyUsageRecord),
         ledgers: loadTable(ledgers, raw => ledgerSchema.parse(raw) as { usedIncense: number }),
         aggregates: loadTable(aggregates, raw => aggregateSchema.parse(raw) as GlobalVoteAggregate),
@@ -563,6 +588,7 @@ export async function openLiangxiangLocalPersistence(
       while (pendingWrites.size > 0) await Promise.allSettled(pendingWrites)
     },
     putWatermark: (sessionId, watermark) => core.port.putWatermark(sessionId, watermark),
+    putWeightPolicies: policies => core.port.putWeightPolicies?.(policies),
     putDailyUsage: (businessDate, record) => writeBehind('daily_usage', () => dailyUsage.put(businessDate, record)),
     putLedger: (businessDate, record) => writeBehind('ledger', () => ledgers.put(businessDate, record)),
     putAggregate: (caseId, aggregate) => writeBehind('aggregate', () => aggregates.put(caseId, aggregate)),

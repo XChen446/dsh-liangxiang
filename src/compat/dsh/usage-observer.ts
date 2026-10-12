@@ -1,64 +1,55 @@
-/**
- * compat/dsh — durable `tokenUsage` projection observer
- * (docs/COMPATIBILITY.md).
- *
- * Feeds every cumulative projection value (initial enumeration of live
- * sessions + the change feed) into the host callback; the host's watermark
- * ledger turns cumulative values into daily deltas. Exact duplicate/replay
- * observations are harmless; a same-attempt final sample may revise an
- * earlier chunk downward, which the current max-HWM ledger cannot reverse
- * after credit (tracked explicitly in docs/COMPATIBILITY.md).
- */
-import type { DshSessionProjections, DshSessions } from './host-services.ts'
-import { readSessionModelId } from './session-route.ts'
-import { DSH_TOKEN_USAGE_KEY } from './token-usage.ts'
+import type { DshSessionEventSource, DshSessionProjections, DshSessionRef, DshSessions } from './host-services.ts'
+import { RequestUsageSettler, type SettledRequestUsage } from './settled-usage.ts'
 
-/**
- * Where one cumulative observation came from, deciding the unknown-session
- * ledger rule: `catchup` values and borrowed-history sessions
- * (firstLiveSeq > 0: resume/fork) BASELINE — pre-existing usage never earns
- * retroactive incense; a live value from a genuinely fresh session
- * (firstLiveSeq === 0) credits from zero because all of it grew under
- * observation.
- */
+/** Seed history baselines; new work settles only after its attempt closes. */
 export type UsageObservationOrigin =
   | { kind: 'catchup' }
   | { kind: 'live', firstLiveSeq: number }
 
 /**
- * Start observing. MUST be called synchronously inside the owning
- * `ctx.inject` callback: `onChanged` registers an effect on the calling
- * fiber (`SessionProjectionRegistry.onChanged`), so disposal rides the plugin
- * lifecycle. Verified against deepseek-harness 0.1.2-alpha.4 @ 4e84901e.
- *
- * Origin semantics: the catch-up enumeration marks values as `catchup`
- * (pre-existing usage must baseline, never earn retroactively); the change
- * feed carries the session's `firstLiveSeq` so the ledger can credit fresh
- * sessions from zero while baselining resumed/forked borrowed history.
- * @param projections - the projection registry face.
- * @param sessions - the live-session store face.
- * @param onUsage - sink for `(sessionId, cumulativeProjectionValue, origin, modelId)`.
- * @returns the change-feed disposer.
+ * Public session/event + snapshotEvents seam, alpha.5 db6bdc3576.
+ * History is scanned once on attachment; normal work folds one event.
+ * Logged provider usage has tokenUsage's bucket/replacement semantics, but
+ * provisional samples never reach the incense ledger. Missing APIs fail closed.
  */
 export function attachUsageObservation(
-  projections: DshSessionProjections,
+  _projections: DshSessionProjections,
   sessions: DshSessions,
-  onUsage: (
-    sessionId: string,
-    value: unknown,
-    origin: UsageObservationOrigin,
-    modelId: string | null,
-  ) => void,
+  onUsage: (sessionId: string, value: unknown, origin: UsageObservationOrigin, modelId: string | null) => void,
+  events: DshSessionEventSource,
+  warn: (message: string) => void = () => undefined,
 ): () => void {
-  // Catch-up: sessions whose usage flowed before this plugin loaded.
-  for (const session of sessions.list()) {
-    const snapshot = projections.snapshot(session)
-    const value = snapshot.values[DSH_TOKEN_USAGE_KEY]
-    if (value !== undefined) onUsage(session.id, value, { kind: 'catchup' }, readSessionModelId(session))
-  }
-  return projections.onChanged((session, key, value) => {
-    if (key === DSH_TOKEN_USAGE_KEY) {
-      onUsage(session.id, value, { kind: 'live', firstLiveSeq: session.firstLiveSeq }, readSessionModelId(session))
+  const folds = new WeakMap<DshSessionRef, RequestUsageSettler>()
+  const replay = (session: DshSessionRef, initial: boolean): RequestUsageSettler | null => {
+    if (session.snapshotEvents === undefined) {
+      warn('[dsh-liangxiang] final usage unavailable: DSH session lifecycle API is missing')
+      return null
     }
+    const fold = new RequestUsageSettler()
+    const requests: SettledRequestUsage[] = []
+    for (const event of session.snapshotEvents()) {
+      const closed = fold.consume(event)
+      if (closed !== null) requests.push(closed)
+    }
+    folds.set(session, fold)
+    if (initial) {
+      onUsage(session.id, { kind: 'settled-requests', throughOffset: fold.throughOffset, requests }, { kind: 'catchup' }, null)
+    } else {
+      onUsage(session.id, { kind: 'settled-requests', throughOffset: session.firstLiveSeq, requests: [] }, { kind: 'catchup' }, null)
+      onUsage(session.id, { kind: 'settled-requests', throughOffset: fold.throughOffset, requests }, { kind: 'live', firstLiveSeq: session.firstLiveSeq }, null)
+    }
+    return fold
+  }
+  for (const session of sessions.list()) replay(session, true)
+  return events.on('session/event', (session, event) => {
+    const fold = folds.get(session)
+    if (fold === undefined) {
+      replay(session, false)
+      return
+    }
+    const closed = fold.consume(event)
+    if (closed !== null) onUsage(session.id, {
+      kind: 'settled-requests', throughOffset: fold.throughOffset, requests: [closed],
+    }, { kind: 'live', firstLiveSeq: session.firstLiveSeq }, null)
   })
 }

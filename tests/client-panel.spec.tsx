@@ -11,7 +11,7 @@ import { createMockLiangxiangStore } from '../src/client/store.ts'
 import type { LiangxiangViewState } from '../src/client/store.ts'
 import { color } from '../src/client/theme.ts'
 import { RELEASE_NOTES_QQ, RELEASE_NOTES_THANKS, RELEASE_NOTES_TITLE } from '../src/client/release-notes.ts'
-import { LIANGZI_STATES, VOTE_COUNT_MAX, deriveLocalIncenseStats, liangQiFloatPeriodMs } from '../src/domain/index.ts'
+import { LIANGZI_STATES, VOTE_COUNT_MAX, deriveLocalIncenseStats, liangQiFloatPeriodMs, DEFAULT_INCENSE_WEIGHT_POLICY } from '../src/domain/index.ts'
 import {
   COMMUNITY_UNAVAILABLE_REASON,
   INCENSE_STAT_LABEL,
@@ -665,6 +665,21 @@ describe('region 2: 香火 | 梁子 + 梁位 | 下一炷', () => {
     expect(copy).toContain('×1')
     expect(copy).toContain('V4-Flash')
     expect(copy).toContain('×0.5')
+  })
+
+  it('renders remote labels, rates and the current threshold instead of a second hard-coded weight table', () => {
+    const base = createMockLiangxiangStore({ tokenPerIncense: 60_000 }).getSnapshot()
+    const tree = renderPanel({ ...base, incenseWeightPolicy: {
+      ...DEFAULT_INCENSE_WEIGHT_POLICY,
+      rules: [{ label: '后台模型名', model: 'new-route', weightBps: 5_000 }],
+    } })
+    const hint = findByAttr(tree, 'data-liangxiang-weight-hint')[0]
+    const copy = hint === undefined ? '' : textContent([hint])
+    expect(copy).toContain('后台模型名')
+    expect(copy).toContain('×0.5')
+    expect(copy).toContain('120,000 Token = 1 炷')
+    expect(copy).not.toContain('V4-Pro')
+    expect(copy).not.toContain('50,000 Token')
   })
 
   it('does not render a leftover 演示 +1 炷 probe', () => {
