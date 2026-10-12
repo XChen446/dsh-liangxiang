@@ -154,9 +154,8 @@ export class BackendLiangService implements LiangHostService {
     watermarks: Map<string, SessionUsageWatermark>,
     daily: Map<string, DailyUsageRecord>,
     sink: UsageProjectionSink,
-    policies?: readonly import('../domain/incense-weight.ts').IncenseWeightPolicy[],
   ): void {
-    this.usage.hydrate(watermarks, daily, sink, policies)
+    this.usage.hydrate(watermarks, daily, sink)
     this.scheduleClaim()
   }
 
@@ -320,7 +319,7 @@ export class BackendLiangService implements LiangHostService {
     const usage = this.usage.recordFor(this.businessDate)
     return {
       schemaVersion: WIRE_SCHEMA_VERSION,
-      incenseWeightPolicy: this.usage.weightPolicyFor(this.businessDate),
+      incenseWeightPolicy: this.usage.weightPolicyFor(),
       revision: this.revision,
       hostEpoch: this.hostEpoch,
       authorityMode: 'DEV_STAGING_ONLY',
@@ -379,7 +378,7 @@ export class BackendLiangService implements LiangHostService {
     const remainingIncense = Math.floor(effectiveTokensToday / DEFAULT_TOKEN_PER_INCENSE)
     return {
       schemaVersion: WIRE_SCHEMA_VERSION,
-      incenseWeightPolicy: this.usage.weightPolicyFor(businessDate),
+      incenseWeightPolicy: this.usage.weightPolicyFor(),
       revision: this.revision,
       hostEpoch: this.hostEpoch,
       authorityMode: 'DEV_STAGING_ONLY',
@@ -544,8 +543,6 @@ export class BackendLiangService implements LiangHostService {
     this.broadcast = bootstrap.broadcast
     this.snapshotSequenceApplied = bootstrap.global_snapshot.sequence
     this.businessDate = bootstrap.business_date
-    if (bootstrap.token_policy.model_weights_invalid) this.warn('[dsh-liangxiang] malformed optional model rules; keeping cached rules')
-    if (bootstrap.token_policy.model_weights !== undefined) this.usage.adoptWeightPolicy(bootstrap.token_policy.model_weights)
     const archiveMoved = bootstrap.archive_version > this.archiveVersion
     this.archiveVersion = bootstrap.archive_version
     this.usage.alignDailyBucket(this.businessDate)

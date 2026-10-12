@@ -34,30 +34,29 @@ describe('optional bootstrap model rules', () => {
 })
 
 describe('incenseWeightBpsForModel', () => {
-  it('recognizes future numbered Pro/Flash and the rolling Flash alias without client edits', () => {
-    for (const model of ['deepseek-v4.2-pro', 'deepseek-v5-pro', 'deepseek-v4.2-flash', 'deepseek-v5-flash', 'deepseek-flash', ' DEEPSEEK-FLASH[1m] ']) {
+  it('keeps every numbered Pro at full rate without depending on the version', () => {
+    for (const model of ['deepseek-pro', 'deepseek-v4.1-pro', 'deepseek-v4.2-pro', 'deepseek-v4.3-pro', 'deepseek-v5-pro', ' DEEPSEEK-V5-PRO[1m] ']) {
       expect(incenseWeightBpsForModel(model)).toBe(INCENSE_WEIGHT_SCALE)
     }
     expect(incenseWeightBpsForModel('another-provider-pro')).toBe(5_000)
     expect(incenseWeightBpsForModel('prefix-deepseek-v5-pro')).toBe(5_000)
   })
 
-  it('maps official old Flash names to the new model, while real old third-party models stay half-rate', () => {
-    for (const model of ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp']) {
-      expect(incenseWeightBpsForModel(model, DEFAULT_INCENSE_WEIGHT_POLICY, 'deepseek-official')).toBe(10_000)
-      expect(incenseWeightBpsForModel(model, DEFAULT_INCENSE_WEIGHT_POLICY, 'third-party')).toBe(5_000)
+  it('keeps every Flash version and alias at half rate, with no provider exceptions', () => {
+    for (const model of ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp', 'deepseek-v4.1-flash', 'deepseek-v4.2-flash', 'deepseek-v4.3-flash', 'deepseek-v5-flash', 'deepseek-flash', ' DEEPSEEK-FLASH[1m] ']) {
+      expect(incenseWeightBpsForModel(model)).toBe(5_000)
     }
   })
 
-  it('uses an operator-supplied exact override and derives its display from the same data', () => {
-    const policy = parseIncenseWeightPolicy({
-      ...DEFAULT_INCENSE_WEIGHT_POLICY, revision: 4, version: 'test-v4',
-      rules: [{ label: '新的别名', model: 'future-new-name', weightBps: 10_000 }, ...DEFAULT_INCENSE_WEIGHT_POLICY.rules],
-    })
-    expect(incenseWeightBpsForModel('future-new-name', policy)).toBe(10_000)
-    expect(incenseWeightRows(policy, 60_000)).toContainEqual({ model: '新的别名', weight: '×1', stick: '60,000 Token = 1 炷' })
-    expect(() => parseIncenseWeightPolicy({ ...policy, rules: [{ label: 'bad', model: '^(.+)+$', weightBps: 10_000 }] })).toThrow()
-    expect(() => parseIncenseWeightPolicy({ ...policy, fallbackWeightBps: 20_000 })).toThrow()
+  it('derives concise family labels and thresholds from the static rule data', () => {
+    expect(parseIncenseWeightPolicy(DEFAULT_INCENSE_WEIGHT_POLICY)).toEqual(DEFAULT_INCENSE_WEIGHT_POLICY)
+    expect(incenseWeightRows(DEFAULT_INCENSE_WEIGHT_POLICY, 60_000)).toEqual([
+      { model: 'Flash', weight: '×0.5', stick: '120,000 Token = 1 炷' },
+      { model: 'Pro', weight: '×1', stick: '60,000 Token = 1 炷' },
+      { model: '其它', weight: '×0.5', stick: '120,000 Token = 1 炷' },
+    ])
+    expect(() => parseIncenseWeightPolicy({ ...DEFAULT_INCENSE_WEIGHT_POLICY, rules: [{ label: 'bad', model: '^(.+)+$', weightBps: 10_000 }] })).toThrow()
+    expect(() => parseIncenseWeightPolicy({ ...DEFAULT_INCENSE_WEIGHT_POLICY, fallbackWeightBps: 20_000 })).toThrow()
   })
   it('rates Pro at 1 and Flash at 0.5', () => {
     expect(incenseWeightBpsForModel('deepseek-v4-pro')).toBe(INCENSE_WEIGHT_SCALE)

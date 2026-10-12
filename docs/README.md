@@ -11,7 +11,7 @@
 | [`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md) | 当前代码/仓库边界、权威流、版本矩阵、运维快照与工程门禁 |
 | [`140-liangxiang-brand.md`](140-liangxiang-brand.md) | 品牌、视觉母题、用户可见文案与发布表达 |
 | [`COMPATIBILITY.md`](COMPATIBILITY.md) | 已实测 DSH/Node/pnpm 基线、触点分级与升级清单 |
-| [`INCENSE_POLICY.md`](INCENSE_POLICY.md) | 两档模型规则、远程下发/缓存、按请求最终用量结算；含未发布状态 |
+| [`INCENSE_POLICY.md`](INCENSE_POLICY.md) | 静态 Pro ×1 / Flash、其他 ×0.5、同源说明与按请求最终用量结算；含未发布状态 |
 | [`INSTALL.md`](INSTALL.md) | 当前安装、开发与自建后端路径 |
 | [`SECURITY.md`](SECURITY.md) | 当前安全边界和加固说明 |
 | [`PRIVACY.md`](PRIVACY.md) | 当前数据收集、存储和删除口径 |

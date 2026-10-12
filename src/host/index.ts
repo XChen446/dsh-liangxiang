@@ -146,7 +146,7 @@ export function apply(ctx: DshHostContext): void {
 
   const hydrateOnline = async (candidate: BackendLiangService, core: LiangxiangPersistenceHandle): Promise<void> => {
     const persisted = await core.port.load()
-    candidate.hydrateUsage(persisted.watermarks, persisted.dailyUsage, core.port, persisted.weightPolicies)
+    candidate.hydrateUsage(persisted.watermarks, persisted.dailyUsage, core.port)
     candidate.setAccountingAvailable(accountingAvailable)
     candidate.attachCommunityIdentity(await core.identity.resolve())
   }

@@ -17,7 +17,7 @@
  */
 import { resolveBackendConfig, BackendConfigError } from './config.ts'
 import { readFileSync } from 'node:fs'
-import { formatLiangPosition, isBusinessDate, parseIncenseWeightPolicy } from '../domain/index.ts'
+import { formatLiangPosition, isBusinessDate } from '../domain/index.ts'
 import { PLUGIN_VERSION, SERVER_BUILD } from '../shared/index.ts'
 import { BACKEND_SCHEMA_USER_VERSION } from './schema.ts'
 import { LiangxiangBackendService } from './service.ts'
@@ -34,7 +34,6 @@ const usage = `usage:
   node lib/backend-cli.js status
   node lib/backend-cli.js version
   node lib/backend-cli.js rules show
-  node lib/backend-cli.js rules validate '<JSON>'
   node lib/backend-cli.js case publish "<标题是夯还是拉>"
   node lib/backend-cli.js case retitle "<标题>"
   node lib/backend-cli.js case queue list
@@ -91,16 +90,9 @@ export function runOperatorCli(
     io.log(`[liangxiang-ops] version ${PLUGIN_VERSION} server_build=${SERVER_BUILD}`)
     return 0
   }
-  if (topic === 'rules' && command === 'validate') {
-    try {
-      if (args.length !== 3 || (args[2]?.length ?? 0) > 16_384) throw new Error('expected bounded policy JSON')
-      const policy = parseIncenseWeightPolicy(JSON.parse(args[2] ?? ''))
-      io.log(`[liangxiang-ops] valid model rules revision=${policy.revision} effective_from=${policy.effectiveFrom}`)
-      return 0
-    } catch {
-      io.error('invalid model rules: use a bounded two-tier policy with a new revision and an explicit business date')
-      return 2
-    }
+  if (topic === 'rules' && command !== 'show') {
+    io.error('model earning rates are static; use rules show to inspect them')
+    return 2
   }
 
   let config

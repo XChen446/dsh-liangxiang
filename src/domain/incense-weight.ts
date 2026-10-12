@@ -1,6 +1,6 @@
 import { isBusinessDate } from './case.ts'
 
-/** Declarative data only: bounded wildcard patterns, never downloaded code. */
+/** Declarative model-family metadata, shared by accounting and its tooltip. */
 export interface IncenseWeightRule {
   label: string
   model: string
@@ -16,7 +16,7 @@ export interface IncenseWeightPolicy {
   rules: readonly IncenseWeightRule[]
 }
 
-export const INCENSE_WEIGHT_POLICY_VERSION = 'incense-weight-v3-model-families'
+export const INCENSE_WEIGHT_POLICY_VERSION = 'incense-weight-v4-static-pro1-others0.5'
 
 /** Integer scale so Flash 0.5 never needs floating point in the ledger. */
 export const INCENSE_WEIGHT_SCALE = 10_000
@@ -34,27 +34,20 @@ export const LEGACY_INCENSE_WEIGHT_POLICY: IncenseWeightPolicy = {
 
 export const DEFAULT_INCENSE_WEIGHT_POLICY: IncenseWeightPolicy = {
   version: INCENSE_WEIGHT_POLICY_VERSION,
-  revision: 3,
-  effectiveFrom: '2026-10-12',
+  revision: 4,
+  effectiveFrom: '1970-01-01',
   fallbackWeightBps: 5_000,
   rules: [
-    // The official adapter accepts old IDs but serves V4.1 Flash. Other
-    // providers may still serve the real old model, so these are scoped.
-    ...['deepseek', 'deepseek-official'].flatMap(provider => [
-      { label: '新 Flash', provider, model: 'deepseek-v4-flash', weightBps: 10_000 },
-      { label: '新 Flash', provider, model: 'deepseek-v4-flash-vision-exp', weightBps: 10_000 },
-    ]),
+    { label: 'Flash', model: 'deepseek-flash', weightBps: 5_000 },
+    { label: 'Flash', model: 'deepseek-*-flash', weightBps: 5_000 },
+    { label: 'Flash', model: 'deepseek-*-flash-*', weightBps: 5_000 },
     { label: 'Pro', model: 'deepseek-pro', weightBps: 10_000 },
     { label: 'Pro', model: 'deepseek-*-pro', weightBps: 10_000 },
     { label: 'Pro', model: 'deepseek-*-pro-*', weightBps: 10_000 },
-    { label: '旧 Flash', model: 'deepseek-v4-flash*', weightBps: 5_000 },
-    { label: '新 Flash', model: 'deepseek-flash', weightBps: 10_000 },
-    { label: '新 Flash', model: 'deepseek-*-flash', weightBps: 10_000 },
-    { label: '新 Flash', model: 'deepseek-*-flash-*', weightBps: 10_000 },
   ],
 }
 
-/** Validate both backend configuration and cached/wire rules with one parser. */
+/** Validate wire metadata and readable legacy storage with one parser. */
 export function parseIncenseWeightPolicy(raw: unknown): IncenseWeightPolicy {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('invalid incense weight policy')
   const value = raw as Record<string, unknown>
@@ -119,27 +112,23 @@ export function canonicalModelId(modelId: string): string {
 }
 
 /**
- * Earning weight for one usage delta.
- * Ordered provider-scoped aliases, whole-ID model families, then fallback.
- * Unknown IDs remain half-rate; a display label never selects a tier.
+ * Static earning rate: DeepSeek Pro ×1; Flash and everything else ×0.5.
+ * The complete route ID selects a family, never its version or display name.
  */
 export function incenseWeightBpsForModel(
   modelId: string | null | undefined,
-  policy: IncenseWeightPolicy = DEFAULT_INCENSE_WEIGHT_POLICY,
-  providerId?: string | null,
 ): number {
+  const policy = DEFAULT_INCENSE_WEIGHT_POLICY
   if (modelId === undefined || modelId === null || modelId.trim() === '') {
     return policy.fallbackWeightBps
   }
   const canonical = canonicalModelId(modelId)
   if (canonical.length > 160) return policy.fallbackWeightBps
-  const provider = providerId?.trim().toLowerCase() ?? ''
-  return policy.rules.find(rule => matches(rule.model, canonical)
-    && (rule.provider === undefined || matches(rule.provider, provider)))?.weightBps
+  return policy.rules.find(rule => matches(rule.model, canonical))?.weightBps
     ?? policy.fallbackWeightBps
 }
 
-/** Tooltip rows are derived from the actual policy, including operator overrides. */
+/** Tooltip rows are derived from the same policy used for accounting. */
 export function incenseWeightRows(policy: IncenseWeightPolicy, tokenPerIncense: number): Array<{
   model: string, weight: string, stick: string,
 }> {

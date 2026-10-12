@@ -36,14 +36,14 @@ interface Stack {
 
 let stack: Stack | null = null
 
-describe('final DSH usage with server-distributed model rules', () => {
+describe('final DSH usage with static model rates', () => {
   it('does not mistake the 10-stick gift for usage already claimed during cold startup', async () => {
     const identity = generateCommunityKeypair('c'.repeat(64))
     const s = await startStack({}, {
       start: Date.UTC(2026, 9, 12, 4), signedIdentity: identity,
       beforeBootstrap: (host, clock) => host.observeUsage('cold-start', {
         kind: 'settled-requests', throughOffset: 3,
-        requests: [{ startOffset: 1, endOffset: 3, endedAt: clock.now(), provider: 'deepseek-official', model: 'deepseek-flash', inputTokens: 50_000, outputTokens: 0 }],
+        requests: [{ startOffset: 1, endOffset: 3, endedAt: clock.now(), provider: 'deepseek-official', model: 'deepseek-flash', inputTokens: 100_000, outputTokens: 0 }],
       }, { kind: 'live', firstLiveSeq: 0 }),
     })
     await waitFor(() => s.backend.dailyState(identity.installationId).authoritative_personal_state.remaining_incense === 11, 'cold startup usage plus gift')
@@ -60,7 +60,7 @@ describe('final DSH usage with server-distributed model rules', () => {
     s.clock.advance(DAY_MS)
     s.host.observeUsage('overnight', {
       kind: 'settled-requests', throughOffset: 3,
-      requests: [{ startOffset: 1, endOffset: 3, endedAt: s.clock.now(), provider: 'deepseek-official', model: 'deepseek-flash', inputTokens: 50_000, outputTokens: 0 }],
+      requests: [{ startOffset: 1, endOffset: 3, endedAt: s.clock.now(), provider: 'deepseek-official', model: 'deepseek-flash', inputTokens: 100_000, outputTokens: 0 }],
     }, { kind: 'live', firstLiveSeq: 0 })
     await s.startNetwork()
     // The ordinary reconnect backoff remains in force.
@@ -72,11 +72,12 @@ describe('final DSH usage with server-distributed model rules', () => {
   it('credits final per-request usage through real HTTP, keeps the gift and publishes the same rule for the tooltip', async () => {
     const identity = generateCommunityKeypair('b'.repeat(64))
     const policy = {
-      ...DEFAULT_INCENSE_WEIGHT_POLICY, revision: 4, version: 'server-test-v4',
+      ...DEFAULT_INCENSE_WEIGHT_POLICY, revision: 99, version: 'server-test-v99',
       rules: [{ label: '后台新模型', model: 'future-route', weightBps: 10_000 }, ...DEFAULT_INCENSE_WEIGHT_POLICY.rules],
     }
     const s = await startStack({ LIANGXIANG_INCENSE_WEIGHT_POLICY: JSON.stringify(policy) }, {
       start: Date.UTC(2026, 9, 12, 4), signedIdentity: identity,
+      backendReportedWeights: policy,
     })
     const session = nativeUsageSession('final-http')
     let listener: ((session: DshSessionRef, event: DshUsageEvent) => void) | null = null
@@ -95,15 +96,15 @@ describe('final DSH usage with server-distributed model rules', () => {
     try {
       expect(frame(s).personal.remainingIncense).toBe(10)
       append('step/start', { turn: 1, step: 1 })
-      append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000) } })
+      append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(200_000) } })
       expect(frame(s).personal.effectiveTokensToday).toBe(500_000)
-      append('assistant/message', finalMessage(sample(50_000), 'future-route'))
+      append('assistant/message', finalMessage(sample(100_000), 'future-route'))
       append('step/end', { turn: 1, step: 1 })
       await waitFor(() => s.backend.dailyState(identity.installationId).authoritative_personal_state.remaining_incense === 11, 'final usage claim')
       await s.host.refreshNow()
       const wire = frame(s)
       expect(wire.personal.remainingIncense).toBe(11)
-      expect(wire.incenseWeightPolicy?.version).toBe('server-test-v4')
+      expect(wire.incenseWeightPolicy).toEqual(DEFAULT_INCENSE_WEIGHT_POLICY)
       expect(wireToViewState(wire, 'live').incenseWeightPolicy).toEqual(wire.incenseWeightPolicy)
       const accepted = await s.host.vote({ caseId: wire.activeCase.id, voteType: 'up', requestId: 'final-rule-vote-0001' })
       expect(accepted.result.status).toBe('accepted')
@@ -141,6 +142,7 @@ async function startStack(
     signedIdentity?: CommunityKeypair
     existingFingerprintOwner?: CommunityKeypair
     beforeBootstrap?: (host: BackendLiangService, clock: ReturnType<typeof createMutableClock>) => void
+    backendReportedWeights?: typeof DEFAULT_INCENSE_WEIGHT_POLICY
   } = {},
 ): Promise<Stack> {
   const config = resolveBackendConfig(
@@ -153,6 +155,8 @@ async function startStack(
     },
     () => undefined,
   )
+  // Exercise compatibility with a backend reporting a different rule policy.
+  if (hostOptions.backendReportedWeights !== undefined) config.incenseWeightPolicy = hostOptions.backendReportedWeights
   const clock = createMutableClock(hostOptions.start ?? FIXED_NOW)
   const store = openBackendStore(config.databasePath)
   const backend = new LiangxiangBackendService({ store, config, clock, warn: () => undefined })

@@ -68,13 +68,13 @@ describe('identity mutation rate limit', () => {
 })
 
 describe('operator CLI', () => {
-  it('validates and displays model-rule data without opening a database', () => {
+  it('displays static rates without opening a database and rejects rule overrides', () => {
     const logs: string[] = []
     const io = { log: (line: string) => logs.push(line), error: (line: string) => logs.push(line) }
     const env = { LIANGXIANG_BACKEND_DB: '/this-path-must-not-be-opened/database.sqlite' }
-    expect(runOperatorCli(['rules', 'validate', JSON.stringify(DEFAULT_INCENSE_WEIGHT_POLICY)], env, io)).toBe(0)
+    expect(runOperatorCli(['rules', 'validate', JSON.stringify(DEFAULT_INCENSE_WEIGHT_POLICY)], env, io)).toBe(2)
     expect(runOperatorCli(['rules', 'show'], env, io)).toBe(0)
-    expect(logs.join('\n')).toContain('incense-weight-v3-model-families')
+    expect(logs.join('\n')).toContain(DEFAULT_INCENSE_WEIGHT_POLICY.version)
     expect(runOperatorCli(['rules', 'validate', '{"rules":"bad"}'], env, io)).toBe(2)
   })
   it('reports the package version without opening the database', () => {

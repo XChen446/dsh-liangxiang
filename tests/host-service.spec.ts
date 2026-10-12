@@ -5,7 +5,7 @@
  * threshold crossing, personal/global decoupling.
  */
 import { describe, expect, it } from 'vitest'
-import { deriveLiangziState } from '../src/domain/index.ts'
+import { deriveLiangziState, DEFAULT_INCENSE_WEIGHT_POLICY } from '../src/domain/index.ts'
 import {
   FakeAuthoritativeLiangService,
   type LiangPersistedState,
@@ -58,6 +58,7 @@ function memoryState(): LiangPersistedState {
 function memoryPort(state: LiangPersistedState): LiangPersistencePort {
   return {
     load: () => Promise.resolve({
+      ...(state.weightPolicies === undefined ? {} : { weightPolicies: state.weightPolicies }),
       watermarks: new Map(state.watermarks),
       dailyUsage: new Map(state.dailyUsage),
       ledgers: new Map(state.ledgers),
@@ -141,6 +142,26 @@ describe('real token mapping (docs/041 fixture)', () => {
 })
 
 describe('model incense weight (Pro=1, Flash=0.5)', () => {
+  it('uses static rates after restoring offline data with different cached metadata', async () => {
+    const stored = memoryState()
+    const policy = { ...DEFAULT_INCENSE_WEIGHT_POLICY, revision: 99, version: 'cached-policy', rules: [{ label: 'Flash', model: 'deepseek-*-flash', weightBps: 10_000 }] }
+    stored.weightPolicies = [policy]
+    stored.dailyUsage.set('2026-08-16', { inputTokens: 50_000, outputTokens: 0, weightCarry: 0, observedAt: NOON_SHANGHAI, weightPolicy: policy })
+    const service = new FakeAuthoritativeLiangService(BASE_CONFIG, fakeClock(NOON_SHANGHAI), () => undefined)
+    await service.attachPersistence(memoryPort(stored))
+    service.observeUsage('static-offline', {
+      kind: 'settled-requests', throughOffset: 3,
+      requests: [{ startOffset: 1, endOffset: 3, endedAt: NOON_SHANGHAI, provider: 'deepseek-official', model: 'deepseek-v4.3-flash', inputTokens: 50_000, outputTokens: 0 }],
+    }, FRESH)
+    expect(service.getWireState().personal.effectiveTokensToday).toBe(75_000)
+    expect(service.getWireState().incenseWeightPolicy).toEqual(DEFAULT_INCENSE_WEIGHT_POLICY)
+    service.observeUsage('static-offline', {
+      kind: 'settled-requests', throughOffset: 6,
+      requests: [{ startOffset: 4, endOffset: 6, endedAt: NOON_SHANGHAI, provider: 'deepseek-official', model: 'deepseek-v4.3-pro', inputTokens: 25_000, outputTokens: 0 }],
+    }, FRESH)
+    expect(service.getWireState().personal.effectiveTokensToday).toBe(100_000)
+  })
+
   it('100k Flash tokens earn one incense (Pro-equivalent 50k)', () => {
     const { service } = readyService()
     service.observeUsage('s1', buckets(100_000, 0, 0, 0), FRESH, 'deepseek-v4-flash')

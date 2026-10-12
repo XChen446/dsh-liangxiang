@@ -661,21 +661,21 @@ describe('region 2: 香火 | 梁子 + 梁位 | 下一炷', () => {
     expect(hint).toBeDefined()
     const copy = hint === undefined ? '' : textContent([hint])
     expect(copy).toContain('攒香按 Pro 当量')
-    expect(copy).toContain('V4-Pro')
+    expect(copy).toContain('Pro')
     expect(copy).toContain('×1')
-    expect(copy).toContain('V4-Flash')
+    expect(copy).toContain('Flash')
     expect(copy).toContain('×0.5')
   })
 
-  it('renders remote labels, rates and the current threshold instead of a second hard-coded weight table', () => {
+  it('renders the static family table with the actual configurable incense threshold', () => {
     const base = createMockLiangxiangStore({ tokenPerIncense: 60_000 }).getSnapshot()
-    const tree = renderPanel({ ...base, incenseWeightPolicy: {
-      ...DEFAULT_INCENSE_WEIGHT_POLICY,
-      rules: [{ label: '后台模型名', model: 'new-route', weightBps: 5_000 }],
-    } })
+    const tree = renderPanel({ ...base, incenseWeightPolicy: DEFAULT_INCENSE_WEIGHT_POLICY })
     const hint = findByAttr(tree, 'data-liangxiang-weight-hint')[0]
     const copy = hint === undefined ? '' : textContent([hint])
-    expect(copy).toContain('后台模型名')
+    expect(copy).toContain('Pro')
+    expect(copy).toContain('Flash')
+    expect(copy).toContain('其它')
+    expect(copy).toContain('60,000 Token = 1 炷')
     expect(copy).toContain('×0.5')
     expect(copy).toContain('120,000 Token = 1 炷')
     expect(copy).not.toContain('V4-Pro')

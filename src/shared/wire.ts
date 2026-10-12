@@ -92,7 +92,7 @@ export interface WireBroadcast {
 
 /** One full state frame (GET /state and every SSE frame). */
 export interface LiangxiangWireState {
-  /** The exact locally pinned earning policy; additive for rolling upgrades. */
+  /** The static earning-rate metadata; additive for rolling upgrades. */
   incenseWeightPolicy?: IncenseWeightPolicy
   schemaVersion: typeof WIRE_SCHEMA_VERSION
   /** Monotonic; stale frames must be dropped by the client. */

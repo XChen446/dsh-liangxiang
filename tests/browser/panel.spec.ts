@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { RELEASE_NOTES_TITLE } from '../../src/client/release-notes.ts'
-import { incenseWeightRows } from '../../src/domain/index.ts'
+import { DEFAULT_INCENSE_WEIGHT_POLICY, incenseWeightRows } from '../../src/domain/index.ts'
 import { parseWireState } from '../../src/shared/wire.ts'
 
 import {
@@ -64,7 +64,7 @@ test('next-incense tooltip uses the installed Host rules and stays within the vi
   const response = await page.request.get('/liangxiang/api/state')
   expect(response.ok()).toBe(true)
   const wire = parseWireState(await response.json())
-  expect(wire.incenseWeightPolicy).toBeDefined()
+  expect(wire.incenseWeightPolicy).toEqual(DEFAULT_INCENSE_WEIGHT_POLICY)
   const next = panel.locator('[data-liangxiang-personal="next-incense"]')
   await next.focus()
   const tooltip = next.locator('[data-liangxiang-weight-hint]')

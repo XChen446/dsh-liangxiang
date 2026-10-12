@@ -24,7 +24,6 @@ import {
 } from '../compat/dsh/token-usage.ts'
 import type { UsageObservationOrigin } from '../compat/dsh/usage-observer.ts'
 import { isSettledUsageBatch } from '../compat/dsh/settled-usage.ts'
-import { WeightPolicyCatalog } from './weight-policy.ts'
 import {
   applyAcceptedVotes,
   clampVoteSpend,
@@ -47,6 +46,7 @@ import {
   type LiangWeekArchive,
   voteBudgetAvailable,
   type IncenseWeightPolicy,
+  DEFAULT_INCENSE_WEIGHT_POLICY,
   type VoteRejectionReason,
   type VoteResult,
 } from '../domain/index.ts'
@@ -112,6 +112,7 @@ export type PersistedVoteRecord = PersistedAcceptedVoteRecord | PersistedRejecte
 
 /** Everything the persistence adapter loads back at boot. */
 export interface LiangPersistedState {
+  /** Readable legacy metadata only; never overrides the static rates. */
   weightPolicies?: readonly IncenseWeightPolicy[]
   watermarks: Map<string, SessionUsageWatermark>
   dailyUsage: Map<string, DailyUsageRecord>
@@ -126,6 +127,7 @@ export interface LiangPersistedState {
 
 /** Write-behind persistence port (implemented over the DSH storage domain). */
 export interface LiangPersistencePort {
+  /** Legacy storage compatibility; normal accounting never writes a rule cache. */
   putWeightPolicies?: (policies: readonly IncenseWeightPolicy[]) => void
   load(): Promise<LiangPersistedState>
   /** Wait until every previously queued local-domain write is durable. */
@@ -176,7 +178,6 @@ export class FakeAuthoritativeLiangService {
   }> = []
 
   private watermarks = new Map<string, SessionUsageWatermark>()
-  private readonly weightPolicies = new WeightPolicyCatalog(() => this.dates.businessDateOf(this.clock.now()))
   private dailyUsage = new Map<string, DailyUsageRecord>()
   private ledgers = new Map<string, { usedIncense: number }>()
   private aggregates = new Map<string, GlobalVoteAggregate>()
@@ -224,7 +225,6 @@ export class FakeAuthoritativeLiangService {
   /** Hydrate from storage, then adopt the port for write-behind persistence. */
   async attachPersistence(port: LiangPersistencePort): Promise<void> {
     const persisted = await port.load()
-    this.weightPolicies.hydrate(persisted.weightPolicies, port.putWeightPolicies)
     for (const [sessionId, persistedMark] of persisted.watermarks) {
       const current = this.watermarks.get(sessionId)
       this.watermarks.set(sessionId, current === undefined
@@ -306,7 +306,7 @@ export class FakeAuthoritativeLiangService {
       const day = this.dailyUsage.get(this.currentDate) ?? EMPTY_DAILY_USAGE
       const settled = creditSettledUsageBatch(
         this.watermarks.get(sessionId), day, value, origin,
-        day.weightPolicy ?? this.weightPolicies.forDate(this.currentDate), this.currentDate,
+        this.currentDate,
         instant => this.dates.businessDateOf(instant),
       )
       this.watermarks.set(sessionId, settled.watermark)
@@ -341,8 +341,7 @@ export class FakeAuthoritativeLiangService {
     if (fold.deltaInput === 0 && fold.deltaOutput === 0) return
     const now = this.clock.now()
     const day = this.dailyUsage.get(this.currentDate) ?? EMPTY_DAILY_USAGE
-    const updated = creditObservedUsage(day, fold.deltaInput, fold.deltaOutput, modelId, now,
-      day.weightPolicy ?? this.weightPolicies.forDate(this.currentDate))
+    const updated = creditObservedUsage(day, fold.deltaInput, fold.deltaOutput, modelId, now)
     this.dailyUsage.set(this.currentDate, updated)
     this.persistence?.putDailyUsage(this.currentDate, updated)
     this.bump()
@@ -566,7 +565,7 @@ export class FakeAuthoritativeLiangService {
     const personal = this.derivePersonal()
     return {
       schemaVersion: WIRE_SCHEMA_VERSION,
-      incenseWeightPolicy: usage.weightPolicy ?? this.weightPolicies.forDate(this.currentDate),
+      incenseWeightPolicy: DEFAULT_INCENSE_WEIGHT_POLICY,
       revision: this.revision,
       hostEpoch: this.hostEpoch,
       authorityMode: 'LOCAL_FAKE_DEV',

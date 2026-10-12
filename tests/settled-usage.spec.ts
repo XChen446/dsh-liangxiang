@@ -44,10 +44,10 @@ describe('real pinned DSH request settlement', () => {
     f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000, 20_000) } })
     expect(f.usage.effectiveTokensFor(date)).toBe(0)
     f.append(session, 'assistant/message', finalMessage(sample(10_000, 15_000, 20_000, 5_000)))
-    expect(f.usage.effectiveTokensFor(date)).toBe(50_000) // tools need not finish first
+    expect(f.usage.effectiveTokensFor(date)).toBe(25_000) // final 50K Flash ×0.5; tools need not finish first
     f.append(session, 'step/end', { turn: 1, step: 1 })
     expect(nativeUsageFold(session.snapshotEvents())).toEqual({ uncachedInputTokens: 10_000, outputTokens: 15_000, cacheReadTokens: 20_000, cacheWriteTokens: 5_000 })
-    expect(f.usage.effectiveTokensFor(date)).toBe(50_000)
+    expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     f.dispose()
   })
 
@@ -58,16 +58,16 @@ describe('real pinned DSH request settlement', () => {
     f.append(session, 'request/context', { provider: 'deepseek-official', model: 'deepseek-flash' })
     f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
     f.append(session, 'llm/retry', { turn: 1, step: 1 })
-    expect(f.usage.effectiveTokensFor(date)).toBe(50_000)
+    expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     f.append(session, 'llm/retry-started', { turn: 1, step: 1, retry: 1 })
     f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000) } })
     f.append(session, 'assistant/message', finalMessage(sample(40_000)))
     f.append(session, 'step/end', { turn: 1, step: 1 })
     expect(nativeUsageFold(session.snapshotEvents()).uncachedInputTokens).toBe(90_000)
-    expect(f.usage.effectiveTokensFor(date)).toBe(90_000)
+    expect(f.usage.effectiveTokensFor(date)).toBe(45_000)
     const once = f.batches.at(-1)
     f.usage.observe(session.id, once, { kind: 'live', firstLiveSeq: 0 })
-    expect(f.usage.effectiveTokensFor(date)).toBe(90_000)
+    expect(f.usage.effectiveTokensFor(date)).toBe(45_000)
     f.dispose()
   })
 
@@ -97,7 +97,7 @@ describe('real pinned DSH request settlement', () => {
     f.append(session, 'step/start', { turn: 1, step: 2 })
     f.append(session, 'assistant/message', finalMessage(sample(50_000), 'deepseek-flash', 'deepseek-official', 2))
     f.append(session, 'step/end', { turn: 1, step: 2 })
-    expect(f.usage.effectiveTokensFor(date)).toBe(50_000)
+    expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     f.dispose()
   })
 
@@ -115,11 +115,11 @@ describe('real pinned DSH request settlement', () => {
     const restored = projection()
     restored.hydrate(watermarks, daily, sink)
     const resumed = feed([session], restored)
-    expect(restored.effectiveTokensFor(date)).toBe(50_000)
+    expect(restored.effectiveTokensFor(date)).toBe(25_000)
     resumed.append(session, 'step/start', { turn: 1, step: 2 })
     resumed.append(session, 'assistant/message', finalMessage(sample(50_000), 'deepseek-flash', 'deepseek-official', 2))
     resumed.append(session, 'step/end', { turn: 1, step: 2 })
-    expect(restored.effectiveTokensFor(date)).toBe(100_000)
+    expect(restored.effectiveTokensFor(date)).toBe(50_000)
     resumed.dispose()
   })
 
@@ -138,7 +138,7 @@ describe('real pinned DSH request settlement', () => {
     const f = feed()
     f.append(fork, 'step/start', { turn: 1, step: 2 })
     f.append(fork, 'assistant/message', finalMessage(sample(50_000), 'deepseek-flash', 'deepseek-official', 2))
-    expect(f.usage.effectiveTokensFor(date)).toBe(50_000)
+    expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     f.dispose()
   })
 
@@ -150,7 +150,7 @@ describe('real pinned DSH request settlement', () => {
     f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
     f.append(session, 'llm/retry', { turn: 1, step: 1 })
     f.append(session, 'step/end', { turn: 1, step: 1 })
-    expect(f.usage.effectiveTokensFor(date)).toBe(50_000)
+    expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     f.dispose()
   })
 
@@ -160,32 +160,37 @@ describe('real pinned DSH request settlement', () => {
     f.append(session, 'step/start', { turn: 1, step: 1 })
     f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
     f.append(session, 'assistant/message', finalMessage(undefined))
-    expect(f.usage.effectiveTokensFor(date)).toBe(50_000)
+    expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     expect(nativeUsageFold(session.snapshotEvents()).uncachedInputTokens).toBe(50_000)
     f.dispose()
   })
 })
 
-describe('remote rules and pinned daily accounting', () => {
+describe('static rules and durable daily accounting', () => {
   const batch = (startOffset: number, endOffset: number): SettledUsageBatch => ({ kind: 'settled-requests', throughOffset: endOffset, requests: [{ startOffset, endOffset, endedAt: now, provider: 'deepseek-official', model: 'deepseek-v4.2-flash', inputTokens: 50_000, outputTokens: 0 }] })
 
-  it('receives a new model rule as data, keeps the same-day policy, and derives the tooltip from it', () => {
+  it('uses the same static rules for current and future Flash versions and their tooltip', () => {
     const usage = projection()
     usage.observe('s', batch(1, 4), { kind: 'live', firstLiveSeq: 0 })
-    expect(usage.effectiveTokensFor(date)).toBe(50_000)
-    usage.adoptWeightPolicy({ ...DEFAULT_INCENSE_WEIGHT_POLICY, revision: 4, version: 'operator-v4', rules: [{ label: 'Flash 调整', model: 'deepseek-*-flash', weightBps: 5_000 }] })
+    expect(usage.effectiveTokensFor(date)).toBe(25_000)
     usage.observe('s', batch(5, 8), { kind: 'live', firstLiveSeq: 0 })
-    expect(usage.effectiveTokensFor(date)).toBe(100_000)
-    expect(usage.weightPolicyFor(date).revision).toBe(3)
-    expect(usage.weightPolicyFor('2026-10-13').revision).toBe(4)
-    expect(incenseWeightRows(usage.weightPolicyFor('2026-10-13'), 50_000)).toContainEqual({ model: 'Flash 调整', weight: '×0.5', stick: '100,000 Token = 1 炷' })
+    expect(usage.effectiveTokensFor(date)).toBe(50_000)
+    expect(usage.weightPolicyFor()).toEqual(DEFAULT_INCENSE_WEIGHT_POLICY)
+    expect(incenseWeightRows(usage.weightPolicyFor(), 50_000)).toContainEqual({ model: 'Flash', weight: '×0.5', stick: '100,000 Token = 1 炷' })
   })
 
-  it('keeps valid cached rules after a reused revision or malformed rule', () => {
+  it('ignores restored rule metadata while preserving earned totals and settlement cursors', () => {
     const usage = projection()
-    usage.adoptWeightPolicy({ ...DEFAULT_INCENSE_WEIGHT_POLICY, rules: [] })
-    usage.adoptWeightPolicy({ revision: 99, rules: 'bad' })
-    expect(usage.weightPolicyFor(date)).toEqual(DEFAULT_INCENSE_WEIGHT_POLICY)
+    const oldPolicy = { ...DEFAULT_INCENSE_WEIGHT_POLICY, revision: 99, version: 'cached-policy', rules: [{ label: 'Flash', model: 'deepseek-*-flash', weightBps: 10_000 }] }
+    usage.hydrate(new Map([['s', { inputHwm: 0, outputHwm: 0, settledOffset: 0, baselineOffset: 0 }]]), new Map([[date, {
+      inputTokens: 50_000, outputTokens: 0, weightCarry: 0, observedAt: now, weightPolicy: oldPolicy,
+    }]]), sink)
+    expect(usage.weightPolicyFor()).toEqual(DEFAULT_INCENSE_WEIGHT_POLICY)
+    usage.observe('s', batch(1, 4), { kind: 'live', firstLiveSeq: 0 })
+    expect(usage.effectiveTokensFor(date)).toBe(75_000)
+    expect(usage.recordFor(date).weightPolicy).toEqual(DEFAULT_INCENSE_WEIGHT_POLICY)
+    usage.observe('s', batch(1, 4), { kind: 'catchup' })
+    expect(usage.effectiveTokensFor(date)).toBe(75_000)
   })
 
   it('does not credit the same attempt on both sides of a mode switch', () => {
@@ -198,8 +203,8 @@ describe('remote rules and pinned daily accounting', () => {
     offline.observe('shared', batch(1, 4), { kind: 'catchup' })
     expect(offline.effectiveTokensFor(date)).toBe(0)
     offline.observe('shared', batch(5, 8), { kind: 'live', firstLiveSeq: 0 })
-    expect(offline.effectiveTokensFor(date)).toBe(50_000)
-    expect(online.effectiveTokensFor(date)).toBe(50_000)
+    expect(offline.effectiveTokensFor(date)).toBe(25_000)
+    expect(online.effectiveTokensFor(date)).toBe(25_000)
   })
 
   it('does not put missed yesterday usage into today during restart catch-up', () => {
@@ -221,27 +226,15 @@ describe('remote rules and pinned daily accounting', () => {
     request.requests = request.requests.map(row => ({ ...row, endedAt: Date.UTC(2026, 9, 12, 17) }))
     usage.setBusinessDates(createBusinessDateProvider('Asia/Shanghai'))
     usage.observe('s', request, { kind: 'catchup' }, undefined, '2026-10-13')
-    expect(usage.effectiveTokensFor('2026-10-13')).toBe(50_000)
+    expect(usage.effectiveTokensFor('2026-10-13')).toBe(25_000)
   })
 
-  it('persists a future rule without activating early and restores it offline', () => {
-    const saved: unknown[] = []
+  it('keeps the static policy after a restart', () => {
     const usage = projection()
-    usage.hydrate(new Map(), new Map(), { ...sink, putWeightPolicies: rows => { saved.push(rows) } })
-    usage.adoptWeightPolicy({ ...DEFAULT_INCENSE_WEIGHT_POLICY, revision: 4, version: 'future-rule', effectiveFrom: '2026-10-13' })
-    expect(usage.weightPolicyFor(date).revision).toBe(3)
+    usage.observe('s', batch(1, 4), { kind: 'live', firstLiveSeq: 0 })
     const restored = projection()
-    restored.hydrate(new Map(), new Map(), sink, saved.at(-1) as typeof DEFAULT_INCENSE_WEIGHT_POLICY[])
-    expect(restored.weightPolicyFor('2026-10-13').revision).toBe(4)
-  })
-
-  it('restores an operator active rule even when the persisted cache lists a future revision first', () => {
-    const usage = projection()
-    const active = { ...DEFAULT_INCENSE_WEIGHT_POLICY, revision: 4, version: 'active-rule' }
-    const future = { ...DEFAULT_INCENSE_WEIGHT_POLICY, revision: 5, version: 'future-rule', effectiveFrom: '2026-10-13' }
-    usage.adoptWeightPolicy(future) // bootstrap can beat storage hydration
-    usage.hydrate(new Map(), new Map(), sink, [future, active])
-    expect(usage.weightPolicyFor(date).version).toBe('active-rule')
-    expect(usage.weightPolicyFor('2026-10-13').version).toBe('future-rule')
+    restored.hydrate(new Map(), new Map([[date, usage.recordFor(date)]]), sink)
+    expect(restored.weightPolicyFor()).toEqual(DEFAULT_INCENSE_WEIGHT_POLICY)
+    expect(restored.effectiveTokensFor(date)).toBe(25_000)
   })
 })

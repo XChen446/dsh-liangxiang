@@ -131,7 +131,7 @@ Host 会把本机观测桶对齐到该日期；浏览器日期和 Host 本地时
 应检查服务端 `LIANGXIANG_BUSINESS_TZ`、时钟与重连日志，不能靠改浏览器日期修复。
 
 也可能是当天确实还没产生足够用量：`LIANGXIANG_TOKEN_PER_INCENSE=50000` 表示
-5 万 Pro 当量才有第一炷。`deepseek-v4-pro` 权重为 1；Flash、未知和其他 route 权重
+5 万 Pro 当量才有第一炷。DeepSeek Pro 类权重为 1；Flash、未知和其他 route 权重
 为 0.5，因此通常需要约 10 万 raw Input+Output Token。本地演示可以显式调小策略值。
 
 ## 打梁报 502 / 「打梁失败」

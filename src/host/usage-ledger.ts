@@ -84,7 +84,7 @@ export function foldUsageObservation(
 
 /** One business date's accumulated observed usage (Pro-equivalent tokens). */
 export interface DailyUsageRecord {
-  /** Freeze today's rules after the first settled usage; never reprice history. */
+  /** Accounting metadata only; restored metadata never changes earning rates. */
   weightPolicy?: IncenseWeightPolicy
   inputTokens: number
   outputTokens: number
@@ -137,18 +137,16 @@ export function creditObservedUsage(
   deltaOutput: number,
   modelId: string | null | undefined,
   observedAt: number,
-  policy: IncenseWeightPolicy = DEFAULT_INCENSE_WEIGHT_POLICY,
-  providerId?: string | null,
 ): DailyUsageRecord {
   const raw = deltaInput + deltaOutput
   const { scaled, carry } = scaleTokensByWeightBps(
     raw,
-    incenseWeightBpsForModel(modelId, policy, providerId),
+    incenseWeightBpsForModel(modelId),
     record.weightCarry,
   )
   const split = splitScaledTokens(scaled, deltaInput, deltaOutput)
   return {
-    ...(record.weightPolicy === undefined ? {} : { weightPolicy: record.weightPolicy }),
+    weightPolicy: DEFAULT_INCENSE_WEIGHT_POLICY,
     inputTokens: record.inputTokens + split.input,
     outputTokens: record.outputTokens + split.output,
     weightCarry: carry,
@@ -162,7 +160,6 @@ export function creditSettledUsageBatch(
   record: DailyUsageRecord,
   batch: SettledUsageBatch,
   origin: UsageObservationOrigin,
-  policy: IncenseWeightPolicy,
   businessDate: string,
   dateOf: (instant: number) => string,
 ): { watermark: SessionUsageWatermark, record: DailyUsageRecord } {
@@ -184,9 +181,8 @@ export function creditSettledUsageBatch(
     watermark.inputHwm += request.inputTokens
     watermark.outputHwm += request.outputTokens
     updated = creditObservedUsage(
-      { ...updated, weightPolicy: record.weightPolicy ?? policy },
+      updated,
       request.inputTokens, request.outputTokens, request.model, request.endedAt,
-      record.weightPolicy ?? policy, request.provider,
     )
   }
   return { watermark, record: updated }

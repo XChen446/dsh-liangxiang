@@ -63,7 +63,7 @@ Badge / 今日梁案 / 香火环 / 二元投票 / 梁祠
 - 在线核心状态在 `storages/liangxiang.json`；离线玩法在懒创建的
   `storages/liangxiang_local.json`。两种模式不合并香火、票、梁案或档案。
 - 两种模式共享会话结算游标（旧高水位保留迁移兼容），防止同一请求在两侧重复凝香；
-  模型规则缓存可共享，香火/票/档案仍严格隔离。
+  模型倍率使用同一份静态规则，香火/票/档案仍严格隔离。
 - Global ratio、Liangzi state 与计数必须来自同一 snapshot；梁祠走独立 history 冷通道。
 - 网络中断保持 online 偏好、锁票并自动重连，绝不静默切换 offline。
 - 不记录或传输 prompt、回复、源码、会话内容、凭据或原始文件路径。
@@ -72,9 +72,9 @@ Badge / 今日梁案 / 香火环 / 二元投票 / 梁祠
 
 以下是 `1.1.6` 正式发布基线：
 
-2026-10-12 源码新增未发布的模型规则引擎与最终请求结算；用户要求本批暂不升版本、
+2026-10-12 源码新增未发布的静态模型族匹配与最终请求结算；用户要求本批暂不升版本、
 验证后统一 commit/push。版本字符串仍是旧正式基线，不代表 npm 或远端已经更新。
-正式发布前必须统一盖新版本/构建号。当前规则与运维数据入口见 `INCENSE_POLICY.md`。
+正式发布前必须统一盖新版本/构建号。静态倍率与计算/说明同源契约见 `INCENSE_POLICY.md`。
 
 | 组件 | 当前事实 |
 |---|---|
@@ -82,7 +82,7 @@ Badge / 今日梁案 / 香火环 / 二元投票 / 梁祠
 | 本地 Backend 源码 | `SERVER_BUILD=1.1.6-u2`；schema v10（v9 receipt + v10 单行限时广播）；单次 Token 补账异常限幅为 5,000 炷（2.5 亿 Pro 当量） |
 | count 修复基线 | accepted 与 rejected 的 `count` 业务处置都保存 durable receipt；v7/v8→v9 migration 整体原子化 |
 | DSH 兼容基线 | 源码审计为 `dsh-v0.1.2-alpha.5` / `db6bdc3576`；npm 无标签安装实际解析到的稳定线 `0.1.1-rc.2` 也已用同一份 1.1.6 tarball 完成真实 Profile 与浏览器回归；Node `22.23.1` / pnpm `11.7.0` |
-| 官网 | `1.1.6` 官网源码已经验收，随本次正式发布推送独立仓 `main`；GoatCounter 使用一方统计域名，构建门禁会阻止漏装统计脚本 |
+| 官网 | 当前公开版 `1.1.6`；静态模型倍率说明已同步独立仓 `main` 与 Pages；GoatCounter 使用一方统计域名，构建门禁会阻止漏装统计脚本 |
 | 社区服务器 | `SERVER_BUILD=1.1.6-u2` / schema v10；单次 Token 补账异常限幅为 5,000 炷；只通过 `scripts/deploy.sh` 更新并由 `scripts/deploy-check.sh` 核验 |
 
 服务器必须与部署分支当前 HEAD 一致。任何 Agent 都不得因为本地修复已提交，就声称
@@ -137,8 +137,8 @@ Badge / 今日梁案 / 香火环 / 二元投票 / 梁祠
 - 远端日志易失；云备份、监控、证书和入口 ACL 需要运营侧持续验收。
 - 2026-08-16/17 有 3,810 炷旧日账残留，但对应梁案/统计/档案已不存在；不影响
   当前业务日，清理前必须先定义保留政策，禁止直接删库。
-- 六态图已改为可见像素等价的 lossless WebP，客户端从 977,821 B / gzip 612,398 B
-  降至 648,163 B / gzip 363,554 B，并设 700 KB / gzip 400 KB 构建预算。剩余性能工作
+- 六态图为可见像素等价的 lossless WebP；当前开发产物为 689,270 B / gzip 386,426 B，
+  通过 700 KB / gzip 400 KB 构建预算。剩余性能工作
   应以浏览器 profiler 为证据，重点观察拖动监听重绑和根组件动画重渲染；不得为追求
   指标破坏冻结 UI 契约。
 
@@ -153,7 +153,7 @@ pnpm run smoke:browser-clean-profile  # 真实临时 Profile + 浏览器/Axe/视
 pnpm run smoke:online          # Backend/API/权威流变化时
 ```
 
-当前浏览器基线为桌面、窄屏、暗色三组共 36 项，覆盖四区结构、恰好两个投票动作、
+当前浏览器基线为桌面、窄屏、暗色三组共 42 项（41 通过、1 按 DSH 窄屏设计跳过），覆盖四区结构、恰好两个投票动作、
 键盘与焦点环/返回、梁祠弹窗、axe WCAG A/AA 自动规则、视口几何和 reduced motion。若新发布的 DSH
 包仍处于 pnpm 24 小时门禁内，只可在人工核对精确版本后为临时 smoke 设置
 `LIANGXIANG_ALLOW_FRESH_DSH=1`，并直接运行 `bash scripts/smoke-clean-profile.sh`；

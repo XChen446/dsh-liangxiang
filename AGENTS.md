@@ -104,8 +104,8 @@ Rules:
   incense or the global 梁位. Respect `prefers-reduced-motion`.
 - right overlay: personal `tokens_to_next_incense` in **Pro 当量** (not raw
   Flash Token). Hover/focus on 下一炷 shows the model-weight table
-  from the same effective rule data used by accounting (Pro / new Flash ×1,
-  real legacy Flash / unknown ×0.5); never maintain a second static table.
+  from the same static rule data used by accounting (Pro ×1,
+  Flash / other / unknown ×0.5); never maintain a second static table.
 - visible 下一炷 当量 uses integer compact (`33K`, never `≈ 33.4K`) so the
   flank does not overlap 梁子. Hover title and the screen-reader summary keep
   the exact integer. 今日凝香 / 环上 overflow 仍可用一位小数。
@@ -466,26 +466,24 @@ Rules:
 
 After a billed request attempt closes, the Host scales its final provider
 usage by that attempt's route/source IDs (never the session's latest model
-or a display name). User-approved two-tier policy, 2026-10-12:
+or a display name). Static two-tier policy:
 
 ```text
 DeepSeek Pro family (including future version IDs) → 1
-deepseek-flash / new numbered Flash family        → 1
-real legacy deepseek-v4-flash / vision-exp         → 0.5
+DeepSeek Flash family (every version and alias)   → 0.5
 missing / unknown / other model ids → 0.5
 ```
 
-Official `deepseek-official` / `deepseek` legacy Flash aliases now serve
-V4.1 Flash and earn ×1; another provider's real legacy model stays ×0.5.
 1 炷 is still `50,000` **Pro-equivalent** tokens. Half-rate routes need
 100k raw tokens. Vote power remains 1 炷 = 1 vote; the backend claim is
 already weighted and never sends model names or session content.
 
-Rules are bounded, ordered wildcard data in bootstrap `token_policy.model_weights`;
-backend `LIANGXIANG_INCENSE_WEIGHT_POLICY` can add aliases/overrides without
-client code changes. Hosts cache valid revisions, keep a day's selected rules
-after its first settlement, and preserve cached rules through outages/restarts.
-Malformed optional rules must not disable voting. Details: `docs/INCENSE_POLICY.md`.
+The single static rule source is `src/domain/incense-weight.ts`: match whole
+DeepSeek route IDs by family, not model age, provider, display name or release
+date. Do not fetch an upstream model catalog or add remote earning-rate
+overrides. Stored or received rule metadata must not change these rates.
+Host sends the same rule data to Client for its tooltip. Details:
+`docs/INCENSE_POLICY.md`.
 
 Streaming usage is provisional: final `assistant/message` replaces its latest
 sample; `llm/retry` / `step/end` closes a failed/interrupted attempt with its
@@ -1157,7 +1155,7 @@ Before completing any major Liangxiang change, be able to answer **yes** to all 
 - Are global ratios and Liangzi state from the same snapshot/version?
 - Is Effective Token still Input + Output?
 - Are cache-read and cache-write both counted as Input under the verified current DSH mapping?
-- Are Pro/new Flash ×1 and real legacy Flash/unknown ×0.5 selected from the same effective rule data as the tooltip, without sending model names to the server?
+- Are static Pro ×1 and Flash/other/unknown ×0.5 selected from the same rule data as the tooltip, without sending model names to the server?
 - Are requests settled from final provider usage with their own route, and replay/restart/mode-switch protected by the shared settlement cursor?
 - Is the client prevented from self-authorizing production vote capacity?
 - Are concurrency and idempotency enforced by the authoritative layer?

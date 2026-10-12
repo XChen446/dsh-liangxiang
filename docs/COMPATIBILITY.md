@@ -7,7 +7,7 @@ DSH 仍处于 Developer Preview，任何升级都必须重新审计，不能从�
 ## 当前基线
 
 2026-10-12 开发增量：重新只读审计同一个 alpha.5 commit，并增加按请求最终用量
-结算与远程模型规则。本批按用户要求暂不升版本，尚未发布/部署；下表的 Published
+结算与静态模型倍率。本批按用户要求暂不升版本，尚未发布/部署；下表的 Published
 与 2026-09-03 安装记录仍专指旧正式包，不能当作新改动已发布的证据。
 
 | 项 | 当前事实 |
@@ -59,9 +59,9 @@ clean-profile 在 Host 启动前默认强制本地后端，只有显式提供
 Token meter、DeepSeek session usage、`PLATFORM_MODULES` 与客户端 tsdown wrapper。
 默认模型 ID 仍为 `deepseek-v4-pro`、`deepseek-v4-flash` 和
 `deepseek-v4-flash-vision-exp`。这仍是旧正式包的 Pro ×1 / Flash ×0.5 证据。
-2026-10-12 用户批准的未发布规则改为 Pro/新 Flash ×1、真正旧 Flash/未知 ×0.5。
-官方两个旧 Flash 别名已转到 V4.1 Flash；供应商限定的例外和未来模型族通配见
-`INCENSE_POLICY.md`，不根据旧目录显示名判断实际代际。
+当前源码的静态规则为 DeepSeek Pro 类 ×1、Flash / 其他 / 未知 ×0.5；
+按完整 route ID 识别模型族，不区分型号代际或供应商，不使用目录显示名定价。
+最终结算及计算/说明同源契约见 `INCENSE_POLICY.md`。
 
 ## 触点与稳定性
 

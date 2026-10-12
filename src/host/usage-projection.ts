@@ -10,8 +10,7 @@
 import { isDshTokenUsageBuckets, normalizeDshTokenUsage } from '../compat/dsh/token-usage.ts'
 import type { UsageObservationOrigin } from '../compat/dsh/usage-observer.ts'
 import { isSettledUsageBatch } from '../compat/dsh/settled-usage.ts'
-import { computeEffectiveTokens, type IncenseWeightPolicy } from '../domain/index.ts'
-import { WeightPolicyCatalog } from './weight-policy.ts'
+import { computeEffectiveTokens, DEFAULT_INCENSE_WEIGHT_POLICY, type IncenseWeightPolicy } from '../domain/index.ts'
 import type { BusinessDateProvider, Clock } from '../shared/business-date.ts'
 import {
   creditObservedUsage,
@@ -24,7 +23,6 @@ import {
 } from './usage-ledger.ts'
 
 export interface UsageProjectionSink {
-  putWeightPolicies?: (policies: readonly IncenseWeightPolicy[]) => void
   putWatermark: (sessionId: string, watermark: SessionUsageWatermark) => void
   putDailyUsage: (businessDate: string, record: DailyUsageRecord) => void
   deleteDailyUsage: (businessDate: string) => void
@@ -44,7 +42,6 @@ export class UsageProjection {
   private watermarks = new Map<string, SessionUsageWatermark>()
   private daily = new Map<string, DailyUsageRecord>()
   private sink: UsageProjectionSink | null = null
-  private readonly policies = new WeightPolicyCatalog(() => this.localBusinessDate())
 
   constructor(deps: UsageProjectionDeps) {
     this.dates = deps.dates
@@ -64,10 +61,8 @@ export class UsageProjection {
     watermarks: Map<string, SessionUsageWatermark>,
     daily: Map<string, DailyUsageRecord>,
     sink: UsageProjectionSink,
-    policies?: readonly IncenseWeightPolicy[],
   ): void {
     this.sink = sink
-    this.policies.hydrate(policies, sink.putWeightPolicies)
     for (const [sessionId, persisted] of watermarks) {
       const current = this.watermarks.get(sessionId)
       this.watermarks.set(sessionId, current === undefined
@@ -112,7 +107,7 @@ export class UsageProjection {
       const previous = this.watermarks.get(sessionId)
       const day = this.recordFor(date)
       const settled = creditSettledUsageBatch(
-        previous, day, value, origin, this.weightPolicyFor(date), date,
+        previous, day, value, origin, date,
         instant => this.dates.businessDateOf(instant),
       )
       this.watermarks.set(sessionId, settled.watermark)
@@ -150,7 +145,6 @@ export class UsageProjection {
       fold.deltaOutput,
       modelId,
       now,
-      this.weightPolicyFor(businessDate),
     )
     this.daily.set(businessDate, updated)
     this.sink?.putDailyUsage(businessDate, updated)
@@ -192,16 +186,9 @@ export class UsageProjection {
     return this.daily.get(businessDate) ?? EMPTY_DAILY_USAGE
   }
 
-  adoptWeightPolicy(policy: unknown): void {
-    try {
-      this.policies.adopt(policy)
-    } catch {
-      this.warn('[dsh-liangxiang] ignored invalid/reused model rule revision; keeping cached rules')
-    }
-  }
-
-  weightPolicyFor(businessDate: string): IncenseWeightPolicy {
-    return this.recordFor(businessDate).weightPolicy ?? this.policies.forDate(businessDate)
+  /** Persisted rule metadata never overrides the static earning rates. */
+  weightPolicyFor(): IncenseWeightPolicy {
+    return DEFAULT_INCENSE_WEIGHT_POLICY
   }
 
   setBusinessDates(dates: BusinessDateProvider, serverTime?: number): void {

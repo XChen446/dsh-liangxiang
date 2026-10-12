@@ -52,7 +52,7 @@ class MemoryFacility implements DshStorageDomainFacility {
 }
 
 describe('liangxiang storage', () => {
-  it('preserves settled cursors, pinned daily rules and the shared last-known-good policy cache on reopen', async () => {
+  it('preserves settled cursors and readable legacy rule metadata on reopen', async () => {
     const facility = new MemoryFacility()
     const handle = await openLiangxiangPersistence(facility, () => undefined)
     await handle.settings.setAuthorityPreference('local')

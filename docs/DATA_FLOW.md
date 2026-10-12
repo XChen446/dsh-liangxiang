@@ -6,7 +6,8 @@
 
 ```text
 DSH 会话产生 provider-reported 用量
-  → Host UsageProjection（高水位差分，按业务日分桶）        [本地观测]
+  → Host UsageProjection（逐请求最终结算，按业务日分桶）    [本地观测]
+  → 静态倍率：DeepSeek Pro ×1；Flash / 其他 / 未知 ×0.5
   → POST /v1/token-claims  claimed_effective_tokens         [不可验证的声明]
   → daily_incense_state.claimed_effective_tokens（单调 ratchet）
   → earned = floor(claimed / token_per_incense)             [domain 派生]
@@ -33,15 +34,16 @@ daily_incense_state.{claimed_effective_tokens, used_incense}
 ## 离线玩法流（用户明确选择后）
 
 ```text
-DSH 累计 tokenUsage
-  → 与在线共用 session watermark，只取尚未记过的 delta
+DSH 每次请求的最终 provider usage
+  → 与在线共用 session 结算游标，只取尚未结算的请求
+  → 同一份静态模型倍率
   → liangxiang_local.json / daily_usage
   → 本机 earned / used / remaining
   → 本机夯拉聚合与本机快照
   → 日切写入本机日梁，再按原始票数生成本机周梁/月梁
 ```
 
-在线与离线只共享防重高水位，不共享日用量、香火、投票、梁案或梁祠。断网沿在线流等待恢复；只有首次选择、梁相案牍按钮或明确启动默认值可以进入离线流。
+在线与离线只共享防重结算游标，不共享日用量、香火、投票、梁案或梁祠。断网沿在线流等待恢复；只有首次选择、梁相案牍按钮或明确启动默认值可以进入离线流。
 
 ## 谁是权威
 
