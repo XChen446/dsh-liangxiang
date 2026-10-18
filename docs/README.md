@@ -24,6 +24,7 @@
 这些文件仍随实现维护，但不是新的契约。只按当前任务选读：
 
 - 数据流与用户操作：`DATA_FLOW.md`、`TROUBLESHOOTING.md`。
+- 三平台合并门禁与 DSH alpha 兼容预警：`CI.md`。
 - 运维与恢复：`121-vps-deploy.md`、`122-identity-recovery.md`、
   `143-case-bank-and-operations.md`、`144-client-recovery-and-update.md`。
 - 梁祠视觉/交互实现参考：`130-liangci-design.md`；契约仍只在 `AGENTS.md`。

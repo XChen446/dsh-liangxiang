@@ -1,0 +1,64 @@
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify:
+    name: verify-locked (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 11.7.0
+          run_install: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - name: Install the audited dependency set
+        id: install
+        run: pnpm install --frozen-lockfile
+      - name: Record tested versions
+        run: |
+          node --version
+          pnpm --version
+          pnpm ls --depth 0 @deepseek-ai/dsh @deepseek-ai/cordis @deepseek-ai/cordis-plugin-group @deepseek-ai/dsh-client-ui-layout @deepseek-ai/dsh-client-ui-renderer @deepseek-ai/dsh-client-ui-slots
+      - name: Typecheck, lint, tests, build and client budget
+        id: checks
+        run: pnpm run verify
+      - name: Summarize the required check
+        if: always()
+        env:
+          INSTALL_RESULT: ${{ steps.install.outcome }}
+          VERIFY_RESULT: ${{ steps.checks.outcome }}
+        run: |
+          {
+            echo "### Locked dependencies: $RUNNER_OS"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Install: $INSTALL_RESULT"
+            echo "- Complete verification: $VERIFY_RESULT"
+            echo "This job is a required merge check. It does not publish or deploy."
+          } >> "$GITHUB_STEP_SUMMARY"
