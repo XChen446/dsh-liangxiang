@@ -23,8 +23,10 @@ function tempDir(): string {
 describe('host file log', () => {
   it('prefers LIANGXIANG_HOST_LOG, then DSH_HOME/logs', () => {
     expect(resolveHostLogPath({ LIANGXIANG_HOST_LOG: '/tmp/explicit.log' })).toBe('/tmp/explicit.log')
-    expect(resolveHostLogPath({ DSH_HOME: '/tmp/dsh-home' })).toBe('/tmp/dsh-home/logs/liangxiang.log')
-    expect(resolveHostLogPath({}, '/workspace')).toBe('/workspace/.dsh/logs/liangxiang.log')
+    // resolveHostLogPath 用 path.join 拼路径，期望值也必须是 join 出来的，否则这条断言
+    // 只在 POSIX 上成立（Windows 会得到 \tmp\dsh-home\logs\liangxiang.log）。
+    expect(resolveHostLogPath({ DSH_HOME: '/tmp/dsh-home' })).toBe(join('/tmp/dsh-home', 'logs', 'liangxiang.log'))
+    expect(resolveHostLogPath({}, '/workspace')).toBe(join('/workspace', '.dsh', 'logs', 'liangxiang.log'))
   })
 
   it('writes succinct lines and keeps the file at or under the cap', () => {
