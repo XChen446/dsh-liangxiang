@@ -3,8 +3,8 @@
  * 687f282e86, token-meter/usage-projection.ts, turn-usage.ts, session/types.ts
  * and llm-retry/types.ts. No message content is copied or persisted here.
  * Chunk samples replace one another; a final message replaces the chunk;
- * A final message closes a successful attempt immediately (without waiting
- * for its tools). step/end or llm/retry closes a failed/interrupted attempt.
+ * Durable assistant/message and assistant/attempt events close their attempt
+ * immediately. Legacy chunks wait for a message, step/end or llm/retry.
  */
 export interface SettledRequestUsage {
   startOffset: number

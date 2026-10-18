@@ -806,7 +806,9 @@ describe('online rollover', () => {
 
     // A second small delta must NOT be skipped by day-1's 6M watermark.
     observePro(s.host, SESSION, usage(6_002_000, 0, 0, 0), { kind: 'live', firstLiveSeq: 0 })
-    await waitFor(() => claimedOnBackend(s, 1_000), 'day-2 claim to land')
+    // The first 1K may already have landed before the second observation.
+    // Wait for both deltas, so a skipped second claim cannot pass this test.
+    await waitFor(() => claimedOnBackend(s, 2_000), 'both day-2 claims to land')
   })
 
   it('picks up a published case on the existing snapshot poll', async () => {

@@ -6,7 +6,7 @@ import { UsageProjection } from '../src/host/usage-projection.ts'
 import { createBusinessDateProvider } from '../src/shared/business-date.ts'
 import { DEFAULT_INCENSE_WEIGHT_POLICY, incenseWeightRows } from '../src/domain/index.ts'
 import { nativeUsageSession, nativeUsageFold, sample, finalMessage, usageStream } from './helpers/dsh-usage.ts'
-import { mergeUsageWatermark } from '../src/host/usage-ledger.ts'
+import { mergeUsageWatermark, type SessionUsageWatermark, type DailyUsageRecord } from '../src/host/usage-ledger.ts'
 
 const now = Date.UTC(2026, 9, 12, 4)
 const date = '2026-10-12'
@@ -37,14 +37,16 @@ function feed(initial: readonly DshSessionRef[] = [], usage = projection()) {
 }
 
 describe('real pinned DSH request settlement', () => {
-  it('does not mint a high chunk; final lower usage and all cache buckets match the real tokenUsage fold', () => {
+  it('does not mint a high embedded sample; final lower usage and all cache buckets match the real tokenUsage fold', () => {
     const session = nativeUsageSession()
     const f = feed([session])
     f.append(session, 'step/start', { turn: 1, step: 1 })
     f.append(session, 'request/context', { provider: 'deepseek-official', model: 'deepseek-flash' })
-    f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000, 20_000) } })
     expect(f.usage.effectiveTokensFor(date)).toBe(0)
-    f.append(session, 'assistant/message', finalMessage(sample(10_000, 15_000, 20_000, 5_000)))
+    f.append(session, 'assistant/message', {
+      ...finalMessage(sample(10_000, 15_000, 20_000, 5_000)),
+      stream: usageStream(sample(100_000, 20_000)),
+    })
     expect(f.usage.effectiveTokensFor(date)).toBe(25_000) // final 50K Flash ×0.5; tools need not finish first
     f.append(session, 'step/end', { turn: 1, step: 1 })
     expect(nativeUsageFold(session.snapshotEvents())).toEqual({ uncachedInputTokens: 10_000, outputTokens: 15_000, cacheReadTokens: 20_000, cacheWriteTokens: 5_000 })
@@ -57,13 +59,15 @@ describe('real pinned DSH request settlement', () => {
     const f = feed([session])
     f.append(session, 'step/start', { turn: 1, step: 1 })
     f.append(session, 'request/context', { provider: 'deepseek-official', model: 'deepseek-flash' })
-    f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
     f.append(session, 'assistant/attempt', { turn: 1, step: 1, stream: usageStream(sample(50_000)) })
+    expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     f.append(session, 'llm/retry', { turn: 1, step: 1 })
     expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     f.append(session, 'llm/retry-started', { turn: 1, step: 1, retry: 1 })
-    f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000) } })
-    f.append(session, 'assistant/message', finalMessage(sample(40_000)))
+    f.append(session, 'assistant/message', {
+      ...finalMessage(sample(40_000)),
+      stream: usageStream(sample(100_000)),
+    })
     f.append(session, 'step/end', { turn: 1, step: 1 })
     expect(nativeUsageFold(session.snapshotEvents()).uncachedInputTokens).toBe(90_000)
     expect(f.usage.effectiveTokensFor(date)).toBe(45_000)
@@ -91,7 +95,6 @@ describe('real pinned DSH request settlement', () => {
   it('baselines legacy history and an in-flight attempt, then credits only new work', () => {
     const session = nativeUsageSession()
     session.append('step/start', { turn: 1, step: 1 })
-    session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000) } })
     const f = feed([session])
     f.append(session, 'assistant/message', finalMessage(sample(80_000)))
     f.append(session, 'step/end', { turn: 1, step: 1 })
@@ -149,7 +152,7 @@ describe('real pinned DSH request settlement', () => {
     const f = feed([session])
     f.append(session, 'step/start', { turn: 1, step: 1 })
     f.append(session, 'request/context', { provider: 'deepseek-official', model: 'deepseek-flash' })
-    f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
+    f.append(session, 'assistant/attempt', { turn: 1, step: 1, stream: usageStream(sample(50_000)) })
     f.append(session, 'llm/retry', { turn: 1, step: 1 })
     f.append(session, 'step/end', { turn: 1, step: 1 })
     expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
@@ -160,7 +163,6 @@ describe('real pinned DSH request settlement', () => {
     const session = nativeUsageSession()
     const f = feed([session])
     f.append(session, 'step/start', { turn: 1, step: 1 })
-    f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
     f.append(session, 'assistant/message', { ...finalMessage(undefined), stream: usageStream(sample(50_000)) })
     expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     expect(nativeUsageFold(session.snapshotEvents()).uncachedInputTokens).toBe(50_000)
@@ -197,6 +199,69 @@ describe('real pinned DSH request settlement', () => {
     expect(f.usage.effectiveTokensFor(date)).toBe(20_000)
     expect(nativeUsageFold(session.snapshotEvents()).uncachedInputTokens).toBe(40_000)
     f.dispose()
+  })
+
+  it.each([undefined, 1])('preserves earned usage through format %s migration and restart with the real observer', (sessionFormat) => {
+    const session = nativeUsageSession()
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/message', finalMessage(sample(100_000)), { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    const watermarks = new Map<string, SessionUsageWatermark>([[session.id, {
+      inputHwm: 100_000, outputHwm: 0, settledOffset: 100, baselineOffset: 0,
+      ...(sessionFormat === undefined ? {} : { sessionFormat }),
+    }]])
+    const daily = new Map<string, DailyUsageRecord>([[date, { inputTokens: 50_000, outputTokens: 0, weightCarry: 0, observedAt: now }]])
+    const persisted = { ...sink,
+      putWatermark: (id: string, row: SessionUsageWatermark) => watermarks.set(id, row),
+      putDailyUsage: (day: string, row: DailyUsageRecord) => daily.set(day, row),
+    }
+    const usage = projection()
+    usage.hydrate(watermarks, daily, persisted)
+    const f = feed([session], usage)
+    expect(usage.effectiveTokensFor(date)).toBe(50_000)
+    expect(watermarks.get(session.id)).toMatchObject({
+      settledOffset: session.snapshotEvents().length,
+      baselineOffset: session.snapshotEvents().length,
+      sessionFormat: session.header?.version,
+    })
+    f.append(session, 'step/start', { turn: 1, step: 2 })
+    f.append(session, 'assistant/message', {
+      ...finalMessage(undefined, undefined, undefined, 2), stream: usageStream(sample(50_000)),
+    })
+    expect(usage.effectiveTokensFor(date)).toBe(75_000)
+    f.dispose()
+    const restored = projection()
+    restored.hydrate(watermarks, daily, persisted)
+    const resumed = feed([session], restored)
+    expect(restored.effectiveTokensFor(date)).toBe(75_000)
+    resumed.append(session, 'step/end', { turn: 1, step: 2 })
+    resumed.append(session, 'step/start', { turn: 1, step: 3 })
+    resumed.append(session, 'assistant/message', finalMessage(sample(50_000), undefined, undefined, 3))
+    expect(restored.effectiveTokensFor(date)).toBe(100_000)
+    resumed.dispose()
+  })
+})
+
+describe('legacy DSH chunk compatibility', () => {
+  it('replaces provisional samples and credits each legacy retry only once', () => {
+    const fold = new RequestUsageSettler()
+    const events = [
+      { type: 'step/start', data: { turn: 1, step: 1 } },
+      { type: 'request/context', data: { provider: 'deepseek-official', model: 'deepseek-pro' } },
+      { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } } },
+      { type: 'llm/retry', data: { turn: 1, step: 1 } },
+      { type: 'llm/retry-started', data: { turn: 1, step: 1, retry: 1 } },
+      { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000) } } },
+      { type: 'assistant/message', data: finalMessage(sample(40_000), 'deepseek-pro') },
+      { type: 'step/end', data: { turn: 1, step: 1 } },
+    ].map((event, seq) => ({ ...event, seq, time: now }))
+    const requests = events.flatMap(event => {
+      const settled = fold.consume(event)
+      return settled === null ? [] : [settled]
+    })
+    expect(requests.map(request => request.inputTokens)).toEqual([50_000, 40_000])
+    expect(requests.every(request => request.model === 'deepseek-pro')).toBe(true)
+    for (const event of events) expect(fold.consume(event)).toBeNull()
   })
 })
 
