@@ -2,11 +2,15 @@ import { expect, test } from '@playwright/test'
 import { badgeSelector, bootInstalledLiangxiang, panelSelector } from './helpers.ts'
 import { SQUISH_LABELS } from '../../src/client/badge-squish.ts'
 
-test('pointer bursts play without trapping keyboard or changing the incense ledger', async ({ page }) => {
+test('pointer bursts keep their tooltip on-screen and preserve keyboard and gameplay actions', async ({ page }) => {
   await bootInstalledLiangxiang(page)
   const badge = page.locator(badgeSelector)
   const panel = page.locator(panelSelector)
-  const before = await (await page.request.get('/liangxiang/api/state')).json()
+  const gameplayRequests: string[] = []
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'POST' && /\/api\/(?:vote|mode|reconcile|dev\/credit|local\/cycle-case)$/.test(path)) gameplayRequests.push(path)
+  })
   await badge.click()
   await expect(panel).toBeVisible()
   await badge.click()
@@ -14,15 +18,16 @@ test('pointer bursts play without trapping keyboard or changing the incense ledg
   await badge.click({ clickCount: 4, delay: 40 })
   await expect(panel).toBeHidden()
   expect(SQUISH_LABELS).toContain(await page.locator('[data-liangxiang-badge-tooltip]').textContent())
+  const tooltipBox = (await page.locator('[data-liangxiang-badge-tooltip]').boundingBox())!
+  expect(tooltipBox.x).toBeGreaterThanOrEqual(0)
+  expect(tooltipBox.x + tooltipBox.width).toBeLessThanOrEqual(page.viewportSize()!.width)
   await expect(badge).toHaveAttribute('title', '今日梁相')
   await badge.press('Enter')
   await expect(panel).toBeVisible()
   await panel.press('Escape')
   await badge.press('Space')
   await expect(panel).toBeVisible()
-  const after = await (await page.request.get('/liangxiang/api/state')).json()
-  expect(after.personal).toEqual(before.personal)
-  expect(after.snapshot).toEqual(before.snapshot)
+  expect(gameplayRequests).toEqual([])
 })
 
 test('idle restores the ordinary pointer action and the default tooltip', async ({ page }) => {

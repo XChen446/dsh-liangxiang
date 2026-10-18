@@ -38,8 +38,9 @@ Cordis 4.0.5。新持久化 assistant/message 和 assistant/attempt 的内嵌 st
 - `pnpm run verify`：52 个测试文件 / 607 项测试全部通过；类型、lint、构建和客户端预算通过。
 - `pnpm peers check`：无 peer 冲突。测试工具补齐上游 app-boot 要求的 Cordis plugin-group 1.0.5，不增加插件运行时依赖。
 - `pnpm run smoke:online`：隔离 localhost HTTP/SQLite + 真实 DSH Host 链路通过，包含重复请求只扣一炷、50 路并发只接受一票、快照发布和生产权威模式拒绝。
-- 构建产物 client.js：694,884 B raw / gzip level 9 387,996 B，低于 700 KB / 400 KB 预算。
+- 构建产物 client.js：695,414 B raw / gzip level 9 388,093 B，低于 700 KB / 400 KB 预算。
 - `pnpm run smoke:browser-clean-profile`：真实 tarball 安装、Host 激活、资源加载、存储/模式检查均通过；桌面、窄屏、暗色共 54 项，53 通过、1 项按窄屏隐藏底部控件的设计跳过。包含 axe WCAG A/AA、四区布局、梁祠、欢迎/更新说明、完整徽标交互和减少动态。
+- 长彩蛋提示复用面板已有的 start/end 停靠方向，向视口内部展开；普通今日梁相仍居中。新增视口边界及无业务请求检查，桌面/窄屏/暗色的 12 项徽标回归全部通过。
 - 已人工查看三种视口/主题的面板及梁祠截图，无新增裁切或布局溢出。
 - 测试时 PR #6 仍为 OPEN，head 仍为上述 d4f2add；本次提交保留原 PR 作为合并父节点，不改写贡献者提交。
 

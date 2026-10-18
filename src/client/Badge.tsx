@@ -137,11 +137,20 @@ const BADGE_CSS = `
 }
 [data-liangxiang-badge][data-tooltip-side="above"] + [data-liangxiang-badge-tooltip] {
   bottom: calc(100% + 8px);
-  transform: translate(-50%, 3px);
+  transform: translate(var(--liangxiang-tooltip-shift, -50%), 3px);
 }
 [data-liangxiang-badge][data-tooltip-side="below"] + [data-liangxiang-badge-tooltip] {
   top: calc(100% + 8px);
-  transform: translate(-50%, -3px);
+  transform: translate(var(--liangxiang-tooltip-shift, -50%), -3px);
+}
+[data-liangxiang-badge][data-tooltip-align="start"] + [data-liangxiang-badge-tooltip] {
+  left: 0;
+  --liangxiang-tooltip-shift: 0px;
+}
+[data-liangxiang-badge][data-tooltip-align="end"] + [data-liangxiang-badge-tooltip] {
+  left: auto;
+  right: 0;
+  --liangxiang-tooltip-shift: 0px;
 }
 [data-liangxiang-badge]:hover + [data-liangxiang-badge-tooltip],
 [data-liangxiang-badge]:focus-visible + [data-liangxiang-badge-tooltip] {
@@ -151,7 +160,7 @@ const BADGE_CSS = `
 [data-liangxiang-badge][data-tooltip-side="above"]:focus-visible + [data-liangxiang-badge-tooltip],
 [data-liangxiang-badge][data-tooltip-side="below"]:hover + [data-liangxiang-badge-tooltip],
 [data-liangxiang-badge][data-tooltip-side="below"]:focus-visible + [data-liangxiang-badge-tooltip] {
-  transform: translate(-50%, 0);
+  transform: translate(var(--liangxiang-tooltip-shift, -50%), 0);
 }
 @media (prefers-reduced-motion: reduce) {
   [data-liangxiang-badge],
@@ -172,6 +181,8 @@ export interface BadgeButtonProps {
   dragging?: boolean
   /** Keep the hover label on the opposite side from the expanded panel. */
   tooltipSide?: 'above' | 'below'
+  /** Long decorative copy follows the panel's already-clamped horizontal edge. */
+  tooltipAlign?: 'center' | 'start' | 'end'
   /** Hover / focus label. Defaults to the frozen `今日梁相`. */
   label?: string
   onToggle: (event: ReactMouseEvent<HTMLButtonElement>) => void
@@ -190,6 +201,7 @@ export function BadgeButton({
   reducedMotion = false,
   dragging = false,
   tooltipSide = 'above',
+  tooltipAlign = 'center',
   label = HOVER_TEXT,
   onToggle,
   onEscape,
@@ -230,6 +242,7 @@ export function BadgeButton({
         data-dragging={dragging}
         data-reduced-motion={reducedMotion}
         data-tooltip-side={tooltipSide}
+        data-tooltip-align={tooltipAlign}
       >
         <style>{BADGE_CSS}</style>
         <span
@@ -917,6 +930,7 @@ export function LiangxiangBadge(): ReactElement {
         reducedMotion={reducedMotion}
         dragging={dragging}
         tooltipSide={placement.stack === 'above' ? 'below' : 'above'}
+        tooltipAlign={badgeLabel === HOVER_TEXT ? 'center' : placement.align}
         label={badgeLabel}
         onToggle={onBadgeToggle}
         onEscape={() => {
