@@ -1,0 +1,38 @@
+name: verify
+
+# 门禁只做一件事：跑 pnpm run verify。刻意不覆盖的三类：
+# 1. tests/browser —— playwright.config.ts 在没有 LIANGXIANG_BROWSER_BASE_URL 时直接
+#    throw，需要一台真跑着的 DSH WebUI，不属于 PR 门禁；
+# 2. smoke:* / assert-profile-modules —— 需要真实 DSH 安装与 disposable profile；
+# 3. npm publish / Release / deploy —— RELEASE_CHECKLIST.md 规定只在运营者显式下令后
+#    手工执行，CI 里出现它们等于把发布动作变成提交的副作用。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      # pnpm-lock.yaml 是 lockfileVersion 9.0（由 pnpm 10.34.5 生成）。版本漂移会让
+      # --frozen-lockfile 直接失败，所以这里钉到同一个版本，而不是用 latest。
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.34.5
+      # node:sqlite 要求 >=22.5；DSH 基线是 ^22.19.0 || >=24.0.0（docs/000）。单跑 24。
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run verify
