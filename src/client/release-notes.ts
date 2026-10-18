@@ -5,17 +5,17 @@
  * test deliberately fails when a version bump forgets to refresh this copy.
  * This is cosmetic localStorage only and never participates in authority.
  */
-export const RELEASE_NOTES_VERSION = '1.1.6'
+export const RELEASE_NOTES_VERSION = '1.2.0-rc.2'
 export const RELEASE_NOTES_TITLE = `梁相 v${RELEASE_NOTES_VERSION} 更新`
 export const RELEASE_NOTES_ITEMS = [
-  '送香了：新香客备 10 炷，当天重装不重复领取。',
-  '倾炉与入口更顺手：长按 1.5 秒倾炉，梁相默认停在设置上方。',
+  '拍梁子更有趣：双击开玩，连拍弹幕逐行下沉，单击开合不打架。',
+  '攒香更准确：按每次请求的最终用量结算，切模型也各算各的。',
+  '倍率更好懂：Pro 一倍，Flash 与其他模型半倍，提示与计算一致。',
   '适配 DSH 新版本：安装、升级与使用更顺畅。',
-  '新增梁相广播台：重要信息不错过～',
 ] as const
 export const RELEASE_NOTES_QQ = '梁相 QQ 群：453683905'
 export const RELEASE_NOTES_QQ_INVITE = '来群里一起出梁案、晒梁位、催更新，第一批梁友等你入席。'
-export const RELEASE_NOTES_THANKS = '感谢一直支持梁相的同学们，尤其鸣谢 GitHub @xunxiaoQ 同学。'
+export const RELEASE_NOTES_THANKS = '感谢一直支持梁相的同学们，尤其鸣谢 GitHub @xunxiaoQ 和 @XChen446 同学。'
 
 const RELEASE_NOTES_KEY_PREFIX = 'liangxiang:release-notes:'
 

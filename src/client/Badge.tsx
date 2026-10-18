@@ -3,7 +3,7 @@
  *
  * `BadgeButton` is the presentational docked entry: the current 梁子 state IS
  * the icon (so the global mood is readable without opening anything), and the
- * hover/focus tooltip stays the frozen `今日梁相`. It is freely placeable —
+ * default tooltip and accessible name stay `今日梁相`. It is freely placeable —
  * drag it anywhere in the frame; the position is remembered per browser.
  *
  * `LiangxiangBadge` is the stateful container that the overlay slot renders: it
@@ -12,15 +12,17 @@
  * vote-feedback timers. All business state lives in the store.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, RefObject } from 'react'
+import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, RefObject } from 'react'
 import { VOTE_COUNT_MAX, type LiangziState, type VoteType } from '../domain/index.ts'
 import { EMPTY_INCENSE_FEEDBACK_MS, VOTE_FEEDBACK_MS, formatAcceptedVoteFeedback, HOMEPAGE_URL, HOVER_TEXT, LIANGZI_STATE_LABELS, NO_INCENSE_GAG, NO_INCENSE_REASON, RECONCILE_DONE, VOTE_DOWN_NAME, VOTE_RATE_LIMITED, VOTE_UP_NAME, isEmptyIncenseFeedback } from '../shared/index.ts'
 import type { HostAuthorityPreference } from '../shared/wire.ts'
 import { readLocalEpithet, rememberLocalEpithetVote } from './local-epithet-store.ts'
 import { readLocalIncenseStats, rememberLocalIncenseVote } from './local-incense-store.ts'
-import { cycleSoundLevel, playArchiveSeal, playIncenseEarn, playLiangziShift, playNoIncense, playVolumePreview, playVoteDown, playVoteDump, playVoteUp, soundLevel as readSoundLevel } from './sound.ts'
+import { cycleSoundLevel, playArchiveSeal, playIncenseEarn, playLiangziShift, playNoIncense, playSquish, playVolumePreview, playVoteDown, playVoteDump, playVoteUp, soundLevel as readSoundLevel } from './sound.ts'
 import { DUMP_AUTO_RELEASE_MS, chargeProgress, holdReleaseAction } from './vote-charge.ts'
 import { hasSeenWelcome, markWelcomeSeen } from './welcome.ts'
+import { pickSquishLabel, SQUISH_ANIM_MS, SQUISH_TAP_WINDOW_MS, SQUISH_IDLE_MS, SQUISH_COMMENT_GAP_MS, SQUISH_LABEL_LINGER_MS, SQUISH_MAX_ROWS } from './badge-squish.ts'
+import { BadgeFeedback, type BadgeComment } from './BadgeFeedback.tsx'
 import {
   BADGE_ICON_SIZE,
   BADGE_SIZE,
@@ -39,7 +41,7 @@ import { LiangAvatar } from './LiangAvatar.tsx'
 import { LiangciModal } from './LiangciModal.tsx'
 import { createLiveLiangxiangStore, LiveTransportError } from './live-store.ts'
 import { Panel } from './Panel.tsx'
-import { color, font } from './theme.ts'
+import { color } from './theme.ts'
 import { useThrottleFill } from './use-throttle-fill.ts'
 import { useTweenedCount } from './use-tweened-count.ts'
 import { hasSeenReleaseNotes, markReleaseNotesSeen } from './release-notes.ts'
@@ -84,6 +86,22 @@ const buttonStyle: CSSProperties = {
 const BADGE_CSS = `
 [data-liangxiang-badge] {
   transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+  transform-origin: 50% 88%;
+}
+
+[data-liangxiang-badge][data-squish-pressed="true"] {
+  transition: transform 80ms cubic-bezier(.2, .8, .3, 1);
+  transform: scale(1.24, 0.74);
+}
+[data-liangxiang-badge][data-squish-release="true"] {
+  animation: liangxiang-badge-squish-release ${SQUISH_ANIM_MS}ms both;
+}
+@keyframes liangxiang-badge-squish-release {
+  0% { transform: scale(1.24, 0.74); animation-timing-function: cubic-bezier(.22, .9, .3, 1); }
+  36% { transform: scale(0.92, 1.12); animation-timing-function: cubic-bezier(.4, 0, .6, 1); }
+  60% { transform: scale(1.07, 0.94); animation-timing-function: cubic-bezier(.4, 0, .6, 1); }
+  80% { transform: scale(0.98, 1.02); animation-timing-function: cubic-bezier(.4, 0, .6, 1); }
+  100% { transform: scale(1, 1); }
 }
 [data-liangxiang-badge]:hover,
 [data-liangxiang-badge][aria-expanded="true"] {
@@ -92,50 +110,19 @@ const BADGE_CSS = `
 }
 [data-liangxiang-badge][data-dragging="true"] {
   cursor: grabbing;
+  transform: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
-[data-liangxiang-badge]:focus-visible,
-[data-liangxiang-badge][aria-expanded="true"]:focus-visible {
+[data-liangxiang-badge]:focus-visible {
   outline: 2px solid ${color.brand};
   outline-offset: 2px;
 }
-[data-liangxiang-badge-tooltip] {
-  position: absolute;
-  left: 50%;
-  padding: 4px 8px;
-  border: 1px solid ${color.border};
-  border-radius: 8px;
-  background: ${color.bgLayer};
-  color: ${color.textPrimary};
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
-  font: 600 11px/16px ${font.family};
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 100ms ease, transform 100ms ease;
-}
-[data-liangxiang-badge][data-tooltip-side="above"] [data-liangxiang-badge-tooltip] {
-  bottom: calc(100% + 8px);
-  transform: translate(-50%, 3px);
-}
-[data-liangxiang-badge][data-tooltip-side="below"] [data-liangxiang-badge-tooltip] {
-  top: calc(100% + 8px);
-  transform: translate(-50%, -3px);
-}
-[data-liangxiang-badge]:hover [data-liangxiang-badge-tooltip],
-[data-liangxiang-badge]:focus-visible [data-liangxiang-badge-tooltip] {
-  opacity: 1;
-}
-[data-liangxiang-badge][data-tooltip-side="above"]:hover [data-liangxiang-badge-tooltip],
-[data-liangxiang-badge][data-tooltip-side="above"]:focus-visible [data-liangxiang-badge-tooltip],
-[data-liangxiang-badge][data-tooltip-side="below"]:hover [data-liangxiang-badge-tooltip],
-[data-liangxiang-badge][data-tooltip-side="below"]:focus-visible [data-liangxiang-badge-tooltip] {
-  transform: translate(-50%, 0);
-}
 @media (prefers-reduced-motion: reduce) {
-  [data-liangxiang-badge],
-  [data-liangxiang-badge-tooltip] { transition: none !important; }
+  [data-liangxiang-badge] { transition: none !important; }
+  [data-liangxiang-badge][data-squish-release="true"] { animation: none !important; }
+  [data-liangxiang-badge] { transform: none !important; }
 }
+[data-liangxiang-badge][data-reduced-motion="true"] { transform: none !important; animation: none !important; }
 `
 
 export interface BadgeButtonProps {
@@ -146,9 +133,7 @@ export interface BadgeButtonProps {
   liangQiFill?: number
   reducedMotion?: boolean
   dragging?: boolean
-  /** Keep the hover label on the opposite side from the expanded panel. */
-  tooltipSide?: 'above' | 'below'
-  onToggle: () => void
+  onToggle: (event: ReactMouseEvent<HTMLButtonElement>) => void
   onEscape: () => void
   /** Hover / keyboard focus: probe the host for a newer 梁案. */
   onProbeLatest?: () => void
@@ -163,7 +148,6 @@ export function BadgeButton({
   liangQiFill = 1,
   reducedMotion = false,
   dragging = false,
-  tooltipSide = 'above',
   onToggle,
   onEscape,
   onProbeLatest,
@@ -174,7 +158,6 @@ export function BadgeButton({
     <button
       type="button"
       ref={buttonRef ?? undefined}
-      title={HOVER_TEXT}
       aria-label={`${HOVER_TEXT}：${LIANGZI_STATE_LABELS[liangziState]}`}
       aria-haspopup="dialog"
       aria-expanded={open}
@@ -183,7 +166,7 @@ export function BadgeButton({
       onFocus={() => onProbeLatest?.()}
       onPointerDown={onPointerDown}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && open) onEscape()
+        if (event.key === 'Escape') onEscape()
       }}
       style={{
         ...buttonStyle,
@@ -192,7 +175,7 @@ export function BadgeButton({
       data-liangxiang-badge=""
       data-liangxiang-badge-state={liangziState}
       data-dragging={dragging}
-      data-tooltip-side={tooltipSide}
+      data-reduced-motion={reducedMotion}
     >
       <style>{BADGE_CSS}</style>
       <span
@@ -219,7 +202,6 @@ export function BadgeButton({
           liangQiFill={liangQiFill}
         />
       </span>
-      <span aria-hidden="true" data-liangxiang-badge-tooltip="">{HOVER_TEXT}</span>
     </button>
   )
 }
@@ -381,10 +363,51 @@ export function LiangxiangBadge(): ReactElement {
   // A drag must not also toggle the panel: the click that follows the release
   // is swallowed once, and only when the pointer actually travelled.
   const suppressClick = useRef(false)
+  const [feedbackBusy, setFeedbackBusy] = useState(false)
+  const [comments, setComments] = useState<BadgeComment[]>([])
+  const gesture = useRef<'idle' | 'pending' | 'playing'>('idle')
+  const lastTap = useRef(0)
+  const lastComment = useRef({ time: -Infinity, text: '', id: 0 })
+  const tapTimer = useRef<number | null>(null)
+  const squishTimer = useRef<number | null>(null)
+  const cancelGesture = useCallback(() => {
+    if (tapTimer.current !== null) window.clearTimeout(tapTimer.current)
+    tapTimer.current = null
+    gesture.current = 'idle'
+    setFeedbackBusy(false)
+  }, [])
+  useEffect(() => () => {
+    if (tapTimer.current !== null) window.clearTimeout(tapTimer.current)
+    if (squishTimer.current !== null) window.clearTimeout(squishTimer.current)
+  }, [])
+  useEffect(() => {
+    if (comments.length === 0) return
+    const oldest = comments[comments.length - 1]!
+    const timer = window.setTimeout(() => setComments(current =>
+      current.filter(comment => Date.now() - comment.createdAt < SQUISH_LABEL_LINGER_MS)),
+    Math.max(0, oldest.createdAt + SQUISH_LABEL_LINGER_MS - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [comments])
   const dragState = useRef<{ pointerId: number, dx: number, dy: number, moved: boolean } | null>(null)
 
   const onPointerDown = useCallback((event: ReactPointerEvent<HTMLButtonElement>): void => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || dragState.current !== null) return
+    // The next press claims the pending single click before a hold/drag can fire it.
+    if (tapTimer.current !== null) window.clearTimeout(tapTimer.current)
+    tapTimer.current = null
+    setFeedbackBusy(true)
+    // A fresh press interrupts the bounce still running from the previous tap,
+    // so a fast burst reads as one continuous squash instead of a stutter.
+    const el = buttonRef.current
+    if (el !== null) {
+      el.removeAttribute('data-squish-release')
+      el.setAttribute('data-squish-pressed', 'true')
+      if (squishTimer.current !== null) {
+        window.clearTimeout(squishTimer.current)
+        squishTimer.current = null
+      }
+    }
+    suppressClick.current = false
     dragState.current = {
       pointerId: event.pointerId,
       dx: event.clientX - position.x,
@@ -393,6 +416,22 @@ export function LiangxiangBadge(): ReactElement {
     }
     event.currentTarget.setPointerCapture(event.pointerId)
   }, [position.x, position.y])
+
+  /**
+   * Replay the release bounce. The attribute is cleared on a timer rather than
+   * on `animationend`: `prefers-reduced-motion` sets `animation: none`, so that
+   * event would never fire and the attribute would stay set forever.
+   */
+  const replaySquishRelease = useCallback((): void => {
+    const el = buttonRef.current
+    if (el === null) return
+    if (squishTimer.current !== null) window.clearTimeout(squishTimer.current)
+    el.setAttribute('data-squish-release', 'true')
+    squishTimer.current = window.setTimeout(() => {
+      el.removeAttribute('data-squish-release')
+      squishTimer.current = null
+    }, SQUISH_ANIM_MS + 40)
+  }, [])
 
   useEffect(() => {
     const onMove = (event: PointerEvent): void => {
@@ -403,6 +442,8 @@ export function LiangxiangBadge(): ReactElement {
         const travelled = Math.abs(next.x - position.x) + Math.abs(next.y - position.y)
         if (travelled < DRAG_THRESHOLD_PX) return
         drag.moved = true
+        cancelGesture()
+        buttonRef.current?.removeAttribute('data-squish-pressed')
         setDragging(true)
       }
       setPosition(clampBadgePosition(next, viewport))
@@ -411,6 +452,7 @@ export function LiangxiangBadge(): ReactElement {
       const drag = dragState.current
       if (drag === null || drag.pointerId !== event.pointerId) return
       dragState.current = null
+      buttonRef.current?.removeAttribute('data-squish-pressed')
       if (drag.moved) {
         suppressClick.current = true
         setDragging(false)
@@ -419,6 +461,13 @@ export function LiangxiangBadge(): ReactElement {
           saveBadgePosition(settled, typeof localStorage === 'undefined' ? null : localStorage)
           return settled
         })
+      } else if (event.type === 'pointercancel') {
+        suppressClick.current = true
+        cancelGesture()
+      } else {
+        // Only a tap bounces back: dropping the badge somewhere must not.
+        playSquish()
+        replaySquishRelease()
       }
     }
     window.addEventListener('pointermove', onMove)
@@ -429,7 +478,7 @@ export function LiangxiangBadge(): ReactElement {
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
-  }, [position.x, position.y, viewport])
+  }, [position.x, position.y, viewport, replaySquishRelease, cancelGesture])
 
   // One short avatar pulse when the GLOBAL Liangzi state crosses a threshold.
   const [avatarPulse, setAvatarPulse] = useState(false)
@@ -766,8 +815,48 @@ export function LiangxiangBadge(): ReactElement {
     setModeConfirmOpen(false)
     setReleaseNotesVisible(true)
   }
-
-  const placement = panelPlacementFor(position, viewport)
+  const togglePanel = (): void => {
+    setOpen(value => {
+      if ((welcomeVisible || releaseNotesVisible) && value) return value
+      const next = !value
+      savePanelOpen(next, typeof localStorage === 'undefined' ? null : localStorage)
+      return next
+    })
+  }
+  const onBadgeToggle = (event: ReactMouseEvent<HTMLButtonElement>): void => {
+    if (suppressClick.current && event.detail > 0) {
+      suppressClick.current = false
+      return
+    }
+    suppressClick.current = false
+    if (event.detail === 0) {
+      cancelGesture()
+      setComments([])
+      togglePanel()
+      return
+    }
+    const now = Date.now()
+    if (tapTimer.current !== null) window.clearTimeout(tapTimer.current)
+    if (now - lastTap.current > SQUISH_IDLE_MS) gesture.current = 'idle'
+    lastTap.current = now
+    setFeedbackBusy(true)
+    if (gesture.current === 'idle') {
+      gesture.current = 'pending'
+      tapTimer.current = window.setTimeout(() => {
+        cancelGesture()
+        togglePanel()
+      }, SQUISH_TAP_WINDOW_MS)
+      return
+    }
+    if (gesture.current !== 'playing' || now - lastComment.current.time >= SQUISH_COMMENT_GAP_MS) {
+      const text = pickSquishLabel(lastComment.current.text)
+      const id = lastComment.current.id + 1
+      lastComment.current = { time: now, text, id }
+      setComments(current => [{ id, text, createdAt: now }, ...current].slice(0, SQUISH_MAX_ROWS))
+    }
+    gesture.current = 'playing'
+    tapTimer.current = window.setTimeout(cancelGesture, SQUISH_IDLE_MS)
+  }
 
   return (
     <div
@@ -788,20 +877,10 @@ export function LiangxiangBadge(): ReactElement {
         liangQiFill={throttle.fill}
         reducedMotion={reducedMotion}
         dragging={dragging}
-        tooltipSide={placement.stack === 'above' ? 'below' : 'above'}
-        onToggle={() => {
-          if (suppressClick.current) {
-            suppressClick.current = false
-            return
-          }
-          setOpen((value) => {
-            if ((welcomeVisible || releaseNotesVisible) && value) return value
-            const next = !value
-            savePanelOpen(next, typeof localStorage === 'undefined' ? null : localStorage)
-            return next
-          })
-        }}
+        onToggle={onBadgeToggle}
         onEscape={() => {
+          cancelGesture()
+          setComments([])
           if (welcomeVisible) return
           if (releaseNotesVisible) {
             onReleaseNotesClose()
@@ -816,6 +895,8 @@ export function LiangxiangBadge(): ReactElement {
         onPointerDown={onPointerDown}
         buttonRef={buttonRef}
       />
+      <BadgeFeedback position={position} viewport={viewport} open={open}
+        comments={comments} suppressed={feedbackBusy || dragging || comments.length > 0} reducedMotion={reducedMotion} />
       {open && (
         <Panel
           state={state}
@@ -832,7 +913,7 @@ export function LiangxiangBadge(): ReactElement {
           condensedIncense={condensedIncense}
           voteFeedback={voteFeedback}
           positionPulse={positionPulse}
-          placement={placement}
+          placement={panelPlacementFor(position, viewport)}
           pinnedHint={pinnedHint}
           onToggleHint={(kind) => setPinnedHint((current) => current === kind ? null : kind)}
           displayTotalIncense={displayTotalIncense}
@@ -851,6 +932,7 @@ export function LiangxiangBadge(): ReactElement {
           onBroadcastDismiss={onBroadcastDismiss}
           onInsufficientVote={onInsufficientVote}
           onClose={() => {
+            cancelGesture()
             if (welcomeVisible) return
             if (releaseNotesVisible) {
               onReleaseNotesClose()

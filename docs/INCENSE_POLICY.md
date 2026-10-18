@@ -37,6 +37,13 @@ Backend bootstrap 和 Host 状态携带同一份静态规则。下一炷的提�
 
 ## 每次请求的最终结算
 
+2026-10-18 的 1.2.0-rc.1 候选新增 DSH 0.2.1-rc.2 兼容：当前日志把用量流
+内嵌到 assistant/message / assistant/attempt，最终 message.usage 优先，否则读取
+stream 最后一个 usage chunk；失败/取消尝试同样只结算一次。旧 chunk 序列保留读取。
+结算游标保存 SessionHeader.version，格式迁移先保守建立新历史基线，再接收新请求，
+不跨格式比较偏移、不重铸旧香火。下文原始算法和证据描述的是 2026-10-12 批次；
+当前适配与验证以 COMPATIBILITY.md 和 PR6_REVIEW.md 为准。
+
 `compat/dsh/settled-usage.ts` 每个活跃会话只保留一个请求尝试的数值样本和模型元数据：
 
 1. `step/start` / `llm/retry-started` 开始一次尝试；`request/header` / `request/context`

@@ -161,13 +161,7 @@ fi
 # stale internal URL shape.
 ROOT_HTML="$(mktemp)"
 curl -sf -b "$AUTH_COOKIE" -o "$ROOT_HTML" "$BASE/"
-CLIENT_PATH="$(node -e '
-  const html = require("node:fs").readFileSync(process.argv[1], "utf8")
-  const attrs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((match) => match[1])
-  const resource = attrs.find((value) => value.includes("/plugins/??") && value.includes("dsh-liangxiang/client.js"))
-  if (resource === undefined) process.exit(2)
-  process.stdout.write(resource.replaceAll("&amp;", "&"))
-' "$ROOT_HTML")"
+CLIENT_PATH="$(node "$REPO_ROOT/scripts/read-client-resource.mjs" "$ROOT_HTML")"
 CLIENT_BUNDLE="$(mktemp)"
 CLIENT_STATUS="$(curl -sS -b "$AUTH_COOKIE" -o "$CLIENT_BUNDLE" -w '%{http_code}' \
   "$BASE$CLIENT_PATH" || true)"

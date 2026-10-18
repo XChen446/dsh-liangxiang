@@ -39,18 +39,21 @@ export async function bootInstalledLiangxiang(
   // installed Liangxiang controls; pre-seeding private DSH storage keys would
   // make this smoke depend on unstable shell implementation details.
   const dshPrompts = [
-    { dialog: 'Internal Testing Notice', action: 'Continue' },
-    { dialog: 'Add an API key to get started', action: 'Configure later' },
+    { dialog: /^(?:Preview Notice|Internal Testing Notice)$/, actions: ['Continue'] },
+    { dialog: /^(?:Get started|Add an API key to get started)$/, actions: ['Configure later', 'Close'] },
   ] as const
   for (const prompt of dshPrompts) {
     const dialog = page.getByRole('dialog', { name: prompt.dialog })
-    // A fresh alpha.5 shell may mount onboarding one render after plugin
+    // A fresh DSH shell may mount onboarding one render after plugin
     // roots become visible. Give each known prompt a short arrival window so
     // the first cold test cannot race the shell dialog.
     const appeared = await dialog.waitFor({ state: 'visible', timeout: 3_000 })
       .then(() => true, () => false)
     if (!appeared) continue
-    await dialog.getByRole('button', { name: prompt.action }).click()
+    for (const name of prompt.actions) {
+      const action = dialog.getByRole('button', { name, exact: true })
+      if (await action.isVisible()) { await action.click(); break }
+    }
     await expect(dialog).toBeHidden()
   }
 }

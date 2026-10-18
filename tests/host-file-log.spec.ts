@@ -23,8 +23,8 @@ function tempDir(): string {
 describe('host file log', () => {
   it('prefers LIANGXIANG_HOST_LOG, then DSH_HOME/logs', () => {
     expect(resolveHostLogPath({ LIANGXIANG_HOST_LOG: '/tmp/explicit.log' })).toBe('/tmp/explicit.log')
-    expect(resolveHostLogPath({ DSH_HOME: '/tmp/dsh-home' })).toBe('/tmp/dsh-home/logs/liangxiang.log')
-    expect(resolveHostLogPath({}, '/workspace')).toBe('/workspace/.dsh/logs/liangxiang.log')
+    expect(resolveHostLogPath({ DSH_HOME: '/tmp/dsh-home' })).toBe(join('/tmp/dsh-home', 'logs', 'liangxiang.log'))
+    expect(resolveHostLogPath({}, '/workspace')).toBe(join('/workspace', '.dsh', 'logs', 'liangxiang.log'))
   })
 
   it('writes succinct lines and keeps the file at or under the cap', () => {

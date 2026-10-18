@@ -6,7 +6,7 @@
  * The renderer's published `/client` export declaration-merges `ctx.slots`
  * onto that context. Slot-specific declarations stay with their adapters.
  *
- * Verified against deepseek-harness 0.1.2-alpha.4 @ 4e84901e:
+ * Verified against deepseek-harness 0.2.1-rc.2 @ 687f282e86:
  * packages/client/ui-renderer/src/client/index.ts (`Context.slots`).
  */
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'

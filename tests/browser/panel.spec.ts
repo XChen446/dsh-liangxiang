@@ -82,10 +82,10 @@ test('next-incense tooltip uses the installed Host rules and stays within the vi
   }
 })
 
-test('fresh default dock sits just above the visible DSH settings control', async ({ page }, testInfo) => {
+test('fresh default dock sits just above the visible DSH footer control', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'chromium-narrow', 'DSH collapses the settings control outside the narrow frame')
   const badgeBox = await page.locator(badgeSelector).boundingBox()
-  const settingsBox = await page.getByRole('button', { name: /^(?:Settings|设置)$/ }).boundingBox()
+  const settingsBox = await page.getByRole('button', { name: /^(?:Settings|设置|Account menu|账户菜单)$/ }).boundingBox()
 
   expect(badgeBox).not.toBeNull()
   expect(settingsBox).not.toBeNull()

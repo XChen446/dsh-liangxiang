@@ -1,4 +1,8 @@
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 function readScript(name: string): string {
@@ -6,6 +10,36 @@ function readScript(name: string): string {
 }
 
 describe('local development workflow', () => {
+  it('finds current document-relative boot resources and legacy parser-loaded bundles', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'liangxiang-boot-'))
+    const html = join(dir, 'index.html')
+    const script = fileURLToPath(new URL('../scripts/read-client-resource.mjs', import.meta.url))
+    try {
+      writeFileSync(html, '<script>globalThis["__DSH_BOOT__"] = {"entries":[{"id":"dsh-liangxiang","url":"plugins/??dsh-liangxiang/client.js&rev=current"}]}</script>')
+      expect(execFileSync(process.execPath, [script, html], { encoding: 'utf8' }))
+        .toBe('/plugins/??dsh-liangxiang/client.js&rev=current')
+      writeFileSync(html, '<script src="/plugins/??dsh-liangxiang/client.js&amp;rev=legacy"></script>')
+      expect(execFileSync(process.execPath, [script, html], { encoding: 'utf8' }))
+        .toBe('/plugins/??dsh-liangxiang/client.js&rev=legacy')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+  it('repairs an undecided native build without changing other Profile choices and can be repeated', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'liangxiang-policy-'))
+    const workspace = join(dir, 'pnpm-workspace.yaml')
+    const policy = join(dir, 'policy.yaml')
+    writeFileSync(workspace, 'nodeLinker: hoisted\nallowBuilds:\n  koffi: set this to true or false\n  another-package: false\n')
+    writeFileSync(policy, 'allowBuilds:\n  koffi: true\n')
+    try {
+      const script = fileURLToPath(new URL('../scripts/prepare-smoke-profile-policy.mjs', import.meta.url))
+      execFileSync(process.execPath, [script, workspace, policy])
+      const first = readFileSync(workspace, 'utf8')
+      expect(first).toContain('koffi: true')
+      expect(first).toContain('another-package: false')
+      expect(first).toContain('nodeLinker: hoisted')
+      execFileSync(process.execPath, [script, workspace, policy])
+      expect(readFileSync(workspace, 'utf8')).toBe(first)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
   it('does not impose the disposable clean-profile runtime gate on daily development', () => {
     expect(readScript('dev-install.sh')).not.toContain('check-dsh-runtime.mjs')
     expect(readScript('dev-web.sh')).not.toContain('check-dsh-runtime.mjs')

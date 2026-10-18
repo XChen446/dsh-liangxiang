@@ -5,7 +5,7 @@
  * `valueSchema` objects only need `.parse(raw)` at open time (verified:
  * packages/storage/storage-domain/src/spec.ts `DomainTableSpec` and
  * src/index.ts `DomainFacility.open`, deepseek-harness 0.1.2-alpha.4 @
- * 4e84901e), so we pass hand-written validators instead of adding a zod
+ * 687f282e86), so we pass hand-written validators instead of adding a zod
  * dependency. A record failing validation rejects the whole open
  * (`invalid-record`), and the host falls back to memory-only mode loudly.
  *
@@ -83,6 +83,7 @@ const watermarkSchema: DshValueSchema = {
       ...(record.settledOffset === undefined ? {} : {
         settledOffset: requireCountField(record, 'settledOffset'),
         baselineOffset: requireCountField(record, 'baselineOffset'),
+        ...(record.sessionFormat === undefined ? {} : { sessionFormat: requireCountField(record, 'sessionFormat') }),
       }),
     }
   },

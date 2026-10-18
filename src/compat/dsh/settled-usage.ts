@@ -1,10 +1,10 @@
 /**
- * Final provider usage per billed request attempt. Audited: DSH alpha.5
- * db6bdc3576, token-meter/usage-projection.ts, turn-usage.ts, session/types.ts
+ * Final provider usage per billed request attempt. Audited: DSH 0.2.1-rc.2
+ * 687f282e86, token-meter/usage-projection.ts, turn-usage.ts, session/types.ts
  * and llm-retry/types.ts. No message content is copied or persisted here.
  * Chunk samples replace one another; a final message replaces the chunk;
- * A final message closes a successful attempt immediately (without waiting
- * for its tools). step/end or llm/retry closes a failed/interrupted attempt.
+ * Durable assistant/message and assistant/attempt events close their attempt
+ * immediately. Legacy chunks wait for a message, step/end or llm/retry.
  */
 export interface SettledRequestUsage {
   startOffset: number
@@ -18,6 +18,8 @@ export interface SettledRequestUsage {
 
 export interface SettledUsageBatch {
   kind: 'settled-requests'
+  /** Log offsets are meaningful only within one DSH Session format. */
+  sessionFormat?: number
   throughOffset: number
   requests: readonly SettledRequestUsage[]
 }
@@ -58,9 +60,22 @@ function usage(raw: unknown): { inputTokens: number, outputTokens: number } | nu
   return { inputTokens, outputTokens: value.outputTokens }
 }
 
+/** Current DSH embeds usage chunks in a settled attempt's compact stream. */
+function streamUsage(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return undefined
+  for (let index = raw.length - 1; index >= 0; index -= 1) {
+    const item = record(raw[index])
+    if (item?.type !== 'chunk') continue
+    const chunk = record(item.chunk)
+    if (chunk?.type === 'usage') return chunk.usage
+  }
+  return undefined
+}
+
 export function isSettledUsageBatch(raw: unknown): raw is SettledUsageBatch {
   const value = record(raw)
   if (value?.kind !== 'settled-requests' || !count(value.throughOffset) || !Array.isArray(value.requests)) return false
+  if (value.sessionFormat !== undefined && !count(value.sessionFormat)) return false
   let previousEnd = 0
   return value.requests.every(rawRequest => {
     const request = record(rawRequest)
@@ -110,9 +125,10 @@ export class RequestUsageSettler {
           this.attempt.sample = usage(chunk.usage)
           this.attempt.sampled = true
         }
-      } else if (event.type === 'assistant/message') {
-        if (data.usage !== undefined) {
-          this.attempt.sample = usage(data.usage)
+      } else if (event.type === 'assistant/message' || event.type === 'assistant/attempt') {
+        const finalUsage = data.usage ?? streamUsage(data.stream)
+        if (finalUsage !== undefined) {
+          this.attempt.sample = usage(finalUsage)
           this.attempt.sampled = true
         }
         const source = route(record(data.message)?.source)

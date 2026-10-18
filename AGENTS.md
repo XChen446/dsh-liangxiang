@@ -20,7 +20,17 @@
   alternate brand namespaces to code, configuration, storage, routes, logs,
   deployments, tests, or documentation.
 - 产品 UI/copy 中，中央角色统一称为 **梁子**；不直接使用现实人物姓名。
-- DSH WebUI entry Hover / Focus text: **今日梁相**
+- DSH WebUI entry name, accessible name and default Hover / Focus text: **今日梁相**.
+  Use one custom tooltip, never a competing native title popup. Pointer single
+  click opens/closes after a 400ms double-click window; double/continuous clicks
+  play without changing the panel. Squash feedback is immediate. The second tap
+  starts decorative comments, subsequent taps emit at most once per 140ms;
+  newest first, at most three rows, each expires within 2.6s. Older rows sink.
+  Center feedback whenever it fits; align at actual viewport edges and avoid
+  the measured panel. Hide the default hint during gestures/comments, then restore.
+  Keyboard activation always opens/closes immediately; drag/cancel never plays
+  a toy sound and cancels pending toggles. Reduced motion disables displacement
+  and squash/bounce. No toy text may imply a balance change or introduce a tier.
 - The docked entry's icon IS the current central 梁子 state (one of the five, or
   the 待开梁 placeholder) — never a letter or an abstract logo.
 - The entry is freely placeable: it can be dragged anywhere in the frame and the

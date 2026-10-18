@@ -3,7 +3,7 @@
  *
  * V0.1 bucket mapping for the durable `tokenUsage` projection
  * (`TokenUsageProjection`, packages/llm/token-meter/src/projection.ts,
- * deepseek-harness 0.1.2-alpha.4 @ 4e84901e). Verified facts:
+ * deepseek-harness 0.2.1-rc.2 @ 687f282e86). Verified facts:
  *
  * - the four buckets are DISJOINT;
  * - reasoning tokens are already included in `outputTokens` (never re-added);

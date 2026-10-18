@@ -3,6 +3,6 @@
  *
  * Host-side context alias. Host plugins are ordinary cordis object plugins
  * (`apply(ctx)` + optional `inject`). Verified against deepseek-harness
- * 0.1.2-alpha.4 @ 4e84901e: docs/user/develop/basic/index.md.
+ * 0.2.1-rc.2 @ 687f282e86: packages/client/ui-renderer/src/client/index.ts and Cordis Context.
  */
 export type { Context as DshHostContext } from '@deepseek-ai/cordis'

@@ -23,6 +23,11 @@
 
 pnpm run build
 
+dsh_cli plugin --profile "$PROFILE" help >/dev/null
+node "$REPO_ROOT/scripts/prepare-smoke-profile-policy.mjs" \
+  "$DSH_HOME/profiles/$PROFILE/pnpm-workspace.yaml" \
+  "$REPO_ROOT/pnpm-workspace.yaml"
+
 dsh_cli plugin --profile "$PROFILE" add "$WEB_APP_SPEC"
 dsh_cli plugin --profile "$PROFILE" add .
 pnpm --dir "$DSH_HOME/profiles/$PROFILE" remove "${WEB_APP_SPEC%@*}" >/dev/null

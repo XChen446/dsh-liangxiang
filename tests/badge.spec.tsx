@@ -62,23 +62,8 @@ describe('LiangxiangBadge entry', () => {
 
   it('keeps the frozen hover copy and names the state for assistive tech', () => {
     const { button } = renderButton(false)
-    expect(button.props.title).toBe(HOVER_TEXT)
+    expect(button.props.title).toBeUndefined() // One custom tooltip; no competing native popup.
     expect(button.props['aria-label']).toBe(`${HOVER_TEXT}：${LIANGZI_STATE_LABELS.liang_sheng}`)
-  })
-
-  it('can place the hover label below the badge, opposite an above-stacked panel', () => {
-    const tree = renderDeep(
-      <BadgeButton
-        open
-        liangziState="liang_sheng"
-        tooltipSide="below"
-        onToggle={() => undefined}
-        onEscape={() => undefined}
-        buttonRef={null}
-      />,
-    )
-    const button = findAll(tree, (node) => node.type === 'button')[0]
-    expect(button?.props['data-tooltip-side']).toBe('below')
   })
 
   it('probes for a newer 梁案 on hover and keyboard focus', () => {
@@ -193,11 +178,11 @@ describe('LiangxiangBadge entry', () => {
 describe('free placement', () => {
   const viewport = { width: 1200, height: 800 }
 
-  it('docks to the bottom-left, just above the settings control, by default', () => {
+  it('docks to the bottom-left, just above the account-menu control, by default', () => {
     const point = defaultBadgePosition(viewport)
     expect(point.x).toBe(BADGE_MARGIN)
     expect(point.y).toBe(viewport.height - BADGE_SIZE - SETTINGS_CLEARANCE)
-    expect((viewport.height - 6 - 4 - 42) - (point.y + BADGE_SIZE)).toBe(8)
+    expect((viewport.height - 6 - 36) - (point.y + BADGE_SIZE)).toBe(8)
   })
 
   it('clamps a point back into the frame', () => {
