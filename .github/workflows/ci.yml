@@ -78,8 +78,9 @@ jobs:
           node-version: 24
           cache: pnpm
       # 故意不走 --frozen-lockfile：这一档要的就是脱离锁定版本。
-      # cordis 跟着一起升，因为 dsh 的 alpha 线要求 @deepseek-ai/cordis@~4.0.5-alpha.2，
-      # 留在 4.0.2 会留一堆 unmet peer；cordis 的 latest（4.0.5）落在这个范围里。
+      # cordis 和 cordis-plugin-group 跟着一起升：dsh 的 alpha 线要求
+      # @deepseek-ai/cordis@~4.0.5-alpha.2 与 @deepseek-ai/cordis-plugin-group@~1.0.5-alpha.2，
+      # 留在 4.0.2 / 1.0.2 会留一堆 unmet peer；两者的 latest（4.0.5 / 1.0.5）都落在范围里。
       - name: Move the DSH definition set to the newest dist-tag
         run: |
           pnpm add -D --save-exact \
@@ -87,7 +88,8 @@ jobs:
             "@deepseek-ai/dsh-client-ui-layout@${{ env.DSH_DIST_TAG }}" \
             "@deepseek-ai/dsh-client-ui-renderer@${{ env.DSH_DIST_TAG }}" \
             "@deepseek-ai/dsh-client-ui-slots@${{ env.DSH_DIST_TAG }}" \
-            "@deepseek-ai/cordis@latest"
+            "@deepseek-ai/cordis@latest" \
+            "@deepseek-ai/cordis-plugin-group@latest"
       # 把实际被测到的版本打进日志，否则红了也说不清是对哪一套红的。
       - name: Record the versions actually under test
         run: |
