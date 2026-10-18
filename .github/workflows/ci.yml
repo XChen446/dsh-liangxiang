@@ -6,6 +6,14 @@ name: verify
 # 2. smoke:* / assert-profile-modules —— 需要真实 DSH 安装与 disposable profile；
 # 3. npm publish / Release / deploy —— RELEASE_CHECKLIST.md 规定只在运营者显式下令后
 #    手工执行，CI 里出现它们等于把发布动作变成提交的副作用。
+#
+# 三个 OS 都要跑，理由各不相同：
+# - windows：产品装进 DSH Desktop 后 host 半做真实文件系统与进程操作（file-log 的路径
+#   拼接、profile-npm-float 的 shell 分支），INSTALL.md 也给了 Windows PowerShell 步骤；
+#   这是风险面最大的平台，也是历史上唯一没被验过的平台。
+# - macos：作者本机（docs/100、docs/141 的实测环境都是 macOS），基线在这里，掉了要立刻知道。
+# - ubuntu：后端实际部署在 Rocky Linux（docs/CURRENT_ARCHITECTURE.md），glibc 上
+#   node:sqlite 与并发测试的行为要跟 glibc 目标对齐。
 on:
   push:
     branches: [main]
@@ -20,8 +28,13 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 一个平台红了不该掐掉另外两个的证据，否则修完一个才发现下一个。
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       # pnpm-lock.yaml 是 lockfileVersion 9.0（由 pnpm 10.34.5 生成）。版本漂移会让
@@ -29,7 +42,7 @@ jobs:
       - uses: pnpm/action-setup@v6
         with:
           version: 10.34.5
-      # node:sqlite 要求 >=22.5；DSH 基线是 ^22.19.0 || >=24.0.0（docs/000）。单跑 24。
+      # node:sqlite 要求 >=22.5；DSH 基线是 ^22.19.0 || >=24.0.0（docs/000）。
       - uses: actions/setup-node@v7
         with:
           node-version: 24
