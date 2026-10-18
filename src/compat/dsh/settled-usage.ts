@@ -5,6 +5,15 @@
  * Chunk samples replace one another; a final message replaces the chunk;
  * A final message closes a successful attempt immediately (without waiting
  * for its tools). step/end or llm/retry closes a failed/interrupted attempt.
+ *
+ * Dual track across the 0.1 -> 0.2 event rename. 0.2 deletes the standalone
+ * `assistant/chunk` event and embeds the attempt's provider stream in
+ * `assistant/attempt` / `assistant/message` instead (audited: DSH 0.2.1-alpha.5,
+ * dsh-llm/lib/types/assistant-stream.d.ts for the record union, and
+ * dsh-session/lib/types/index.js assertAssistantSettlementShape for the required
+ * `stream` field). Both shapes are consumed here so the same build accounts
+ * correctly on either version; retiring the chunk path is a separate decision
+ * for whoever drops the 0.1 pin.
  */
 export interface SettledRequestUsage {
   startOffset: number
@@ -56,6 +65,28 @@ function usage(raw: unknown): { inputTokens: number, outputTokens: number } | nu
   if (!count(inputTokens) || !count(inputTokens + value.outputTokens)) return null
   // reasoningTokens is already included in output, exactly like tokenUsage.
   return { inputTokens, outputTokens: value.outputTokens }
+}
+
+/**
+ * Read the provider sample out of an embedded attempt stream (DSH 0.2.x).
+ *
+ * 0.2 replaces the standalone `assistant/chunk` event with a compact stream carried
+ * inside `assistant/attempt` / `assistant/message`: the same usage chunk survives as a
+ * raw `{ type: 'chunk' }` record. Packed delta records carry no usage, so only that
+ * record type is read. Later samples replace earlier ones, matching chunk semantics.
+ */
+function streamUsage(stream: unknown): { inputTokens: number, outputTokens: number } | null {
+  if (!Array.isArray(stream)) return null
+  let kept: { inputTokens: number, outputTokens: number } | null = null
+  for (const entry of stream) {
+    const recordEntry = record(entry)
+    if (recordEntry?.type !== 'chunk') continue
+    const chunk = record(recordEntry.chunk)
+    if (chunk?.type !== 'usage') continue
+    const parsed = usage(chunk.usage)
+    if (parsed !== null) kept = parsed
+  }
+  return kept
 }
 
 export function isSettledUsageBatch(raw: unknown): raw is SettledUsageBatch {
@@ -110,10 +141,28 @@ export class RequestUsageSettler {
           this.attempt.sample = usage(chunk.usage)
           this.attempt.sampled = true
         }
+      } else if (event.type === 'assistant/attempt') {
+        // 0.2.x logs an ended attempt's provider stream here instead of standalone
+        // chunks. Record its sample but keep the attempt open: the same closer
+        // (`llm/retry`, `step/end`, or a following message) still decides settlement,
+        // so a retried attempt is not credited at the wrong offsets.
+        const folded = streamUsage(data.stream)
+        if (folded !== null) {
+          this.attempt.sample = folded
+          this.attempt.sampled = true
+        }
       } else if (event.type === 'assistant/message') {
         if (data.usage !== undefined) {
           this.attempt.sample = usage(data.usage)
           this.attempt.sampled = true
+        } else {
+          // 0.2.x keeps the last provider sample in the embedded stream when the
+          // message itself carries no usage.
+          const folded = streamUsage(data.stream)
+          if (folded !== null) {
+            this.attempt.sample = folded
+            this.attempt.sampled = true
+          }
         }
         const source = route(record(data.message)?.source)
         if (source.model !== null) this.attempt.route = source

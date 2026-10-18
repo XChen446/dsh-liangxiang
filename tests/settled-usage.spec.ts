@@ -5,7 +5,7 @@ import type { DshSessionEventSource, DshSessionProjections, DshSessionRef } from
 import { UsageProjection } from '../src/host/usage-projection.ts'
 import { createBusinessDateProvider } from '../src/shared/business-date.ts'
 import { DEFAULT_INCENSE_WEIGHT_POLICY, incenseWeightRows } from '../src/domain/index.ts'
-import { nativeUsageSession, nativeUsageFold, sample, finalMessage } from './helpers/dsh-usage.ts'
+import { nativeUsageSession, nativeUsageFold, sample, finalMessage, attemptUsageEvent, embedsAttemptStream, messageStream } from './helpers/dsh-usage.ts'
 
 const now = Date.UTC(2026, 9, 12, 4)
 const date = '2026-10-12'
@@ -41,9 +41,10 @@ describe('real pinned DSH request settlement', () => {
     const f = feed([session])
     f.append(session, 'step/start', { turn: 1, step: 1 })
     f.append(session, 'request/context', { provider: 'deepseek-official', model: 'deepseek-flash' })
-    f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000, 20_000) } })
+    const promptEstimate = sample(100_000, 20_000)
+    if (!embedsAttemptStream) f.append(session, ...attemptUsageEvent(1, 1, promptEstimate))
     expect(f.usage.effectiveTokensFor(date)).toBe(0)
-    f.append(session, 'assistant/message', finalMessage(sample(10_000, 15_000, 20_000, 5_000)))
+    f.append(session, 'assistant/message', finalMessage(sample(10_000, 15_000, 20_000, 5_000), undefined, undefined, 1, messageStream(promptEstimate)))
     expect(f.usage.effectiveTokensFor(date)).toBe(25_000) // final 50K Flash ×0.5; tools need not finish first
     f.append(session, 'step/end', { turn: 1, step: 1 })
     expect(nativeUsageFold(session.snapshotEvents())).toEqual({ uncachedInputTokens: 10_000, outputTokens: 15_000, cacheReadTokens: 20_000, cacheWriteTokens: 5_000 })
@@ -56,12 +57,12 @@ describe('real pinned DSH request settlement', () => {
     const f = feed([session])
     f.append(session, 'step/start', { turn: 1, step: 1 })
     f.append(session, 'request/context', { provider: 'deepseek-official', model: 'deepseek-flash' })
-    f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
+    f.append(session, ...attemptUsageEvent(1, 1, sample(50_000)))
     f.append(session, 'llm/retry', { turn: 1, step: 1 })
     expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     f.append(session, 'llm/retry-started', { turn: 1, step: 1, retry: 1 })
-    f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000) } })
-    f.append(session, 'assistant/message', finalMessage(sample(40_000)))
+    if (!embedsAttemptStream) f.append(session, ...attemptUsageEvent(1, 1, sample(100_000)))
+    f.append(session, 'assistant/message', finalMessage(sample(40_000), undefined, undefined, 1, messageStream(sample(100_000))))
     f.append(session, 'step/end', { turn: 1, step: 1 })
     expect(nativeUsageFold(session.snapshotEvents()).uncachedInputTokens).toBe(90_000)
     expect(f.usage.effectiveTokensFor(date)).toBe(45_000)
@@ -89,9 +90,9 @@ describe('real pinned DSH request settlement', () => {
   it('baselines legacy history and an in-flight attempt, then credits only new work', () => {
     const session = nativeUsageSession()
     session.append('step/start', { turn: 1, step: 1 })
-    session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000) } })
+    if (!embedsAttemptStream) session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(100_000) } })
     const f = feed([session])
-    f.append(session, 'assistant/message', finalMessage(sample(80_000)))
+    f.append(session, 'assistant/message', finalMessage(sample(80_000), undefined, undefined, 1, messageStream(sample(100_000))))
     f.append(session, 'step/end', { turn: 1, step: 1 })
     expect(f.usage.effectiveTokensFor(date)).toBe(0)
     f.append(session, 'step/start', { turn: 1, step: 2 })
@@ -147,7 +148,7 @@ describe('real pinned DSH request settlement', () => {
     const f = feed([session])
     f.append(session, 'step/start', { turn: 1, step: 1 })
     f.append(session, 'request/context', { provider: 'deepseek-official', model: 'deepseek-flash' })
-    f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
+    f.append(session, ...attemptUsageEvent(1, 1, sample(50_000)))
     f.append(session, 'llm/retry', { turn: 1, step: 1 })
     f.append(session, 'step/end', { turn: 1, step: 1 })
     expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
@@ -158,8 +159,8 @@ describe('real pinned DSH request settlement', () => {
     const session = nativeUsageSession()
     const f = feed([session])
     f.append(session, 'step/start', { turn: 1, step: 1 })
-    f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
-    f.append(session, 'assistant/message', finalMessage(undefined))
+    if (!embedsAttemptStream) f.append(session, ...attemptUsageEvent(1, 1, sample(50_000)))
+    f.append(session, 'assistant/message', finalMessage(undefined, undefined, undefined, 1, messageStream(sample(50_000))))
     expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     expect(nativeUsageFold(session.snapshotEvents()).uncachedInputTokens).toBe(50_000)
     f.dispose()
