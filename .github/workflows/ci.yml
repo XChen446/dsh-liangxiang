@@ -6,14 +6,6 @@ name: verify
 # 2. smoke:* / assert-profile-modules —— 需要真实 DSH 安装与 disposable profile；
 # 3. npm publish / Release / deploy —— RELEASE_CHECKLIST.md 规定只在运营者显式下令后
 #    手工执行，CI 里出现它们等于把发布动作变成提交的副作用。
-#
-# 三个 OS 都要跑，理由各不相同：
-# - windows：产品装进 DSH Desktop 后 host 半做真实文件系统与进程操作（file-log 的路径
-#   拼接、profile-npm-float 的 shell 分支），INSTALL.md 也给了 Windows PowerShell 步骤；
-#   这是风险面最大的平台，也是历史上唯一没被验过的平台。
-# - macos：作者本机（docs/100、docs/141 的实测环境都是 macOS），基线在这里，掉了要立刻知道。
-# - ubuntu：后端实际部署在 Rocky Linux（docs/CURRENT_ARCHITECTURE.md），glibc 上
-#   node:sqlite 与并发测试的行为要跟 glibc 目标对齐。
 on:
   push:
     branches: [main]
@@ -26,9 +18,27 @@ concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # DSH 定义跑在哪个 dist-tag 上。仓库跟的是 alpha 线（当前钉 0.1.2-alpha.5），所以这里
+  # 也是 alpha；想跟 RC 线就换成 next。
+  #
+  # 不要用 latest：npm 上 @deepseek-ai/dsh 的 latest 是 0.2.0-rc.2，但 client-ui-layout /
+  # client-ui-slots 的 latest 还停在 0.0.1-rc.1（比仓库钉的版本更旧），四个包拼起来是串味
+  # 的组合，还会把 layout/slots 降级。alpha 和 next 这两条线上四个包的版本号是一致的。
+  DSH_DIST_TAG: alpha
+
 jobs:
+  # 按 pnpm-lock.yaml 装死版本。这一档回答的是「用户实际会装到的组合成不成立」，
+  # 也是唯一有资格阻断合并的一档。
+  #
+  # 三个 OS 都要跑，理由各不相同：
+  # - windows：产品装进 DSH Desktop 后 host 半做真实文件系统与进程操作（file-log 的路径
+  #   拼接、profile-npm-float 的 shell 分支），INSTALL.md 也给了 Windows PowerShell 步骤；
+  #   这是风险面最大的平台，也是历史上唯一没被验过的平台。
+  # - macos：作者本机（docs/100、docs/141 的实测环境都是 macOS），基线在这里，掉了要立刻知道。
+  # - ubuntu：后端实际部署在 Rocky Linux（docs/CURRENT_ARCHITECTURE.md），glibc 上
+  #   node:sqlite 与并发测试的行为要跟 glibc 目标对齐。
   verify:
-    # 一个平台红了不该掐掉另外两个的证据，否则修完一个才发现下一个。
     strategy:
       fail-fast: false
       matrix:
@@ -48,4 +58,43 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm run verify
+
+  # 每次运行都把 DSH 定义换成当前 dist-tag 上的最新一套，回答「上游漂了会不会撞」。
+  # DSH 预发布期间没有任何兼容承诺（docs/000），所以这个问题的答案会随时间变化，而不是
+  # 随提交变化——它红不代表这个提交错了，因此 continue-on-error，不阻断合并。
+  # 要让它阻断合并，删掉 continue-on-error 那一行即可（但先看它今天是否本来就是红的）。
+  dsh-latest:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      # 故意不走 --frozen-lockfile：这一档要的就是脱离锁定版本。
+      # cordis 跟着一起升，因为 dsh 的 alpha 线要求 @deepseek-ai/cordis@~4.0.5-alpha.2，
+      # 留在 4.0.2 会留一堆 unmet peer；cordis 的 latest（4.0.5）落在这个范围里。
+      - name: Move the DSH definition set to the newest dist-tag
+        run: |
+          pnpm add -D --save-exact \
+            "@deepseek-ai/dsh@${{ env.DSH_DIST_TAG }}" \
+            "@deepseek-ai/dsh-client-ui-layout@${{ env.DSH_DIST_TAG }}" \
+            "@deepseek-ai/dsh-client-ui-renderer@${{ env.DSH_DIST_TAG }}" \
+            "@deepseek-ai/dsh-client-ui-slots@${{ env.DSH_DIST_TAG }}" \
+            "@deepseek-ai/cordis@latest"
+      # 把实际被测到的版本打进日志，否则红了也说不清是对哪一套红的。
+      - name: Record the versions actually under test
+        run: |
+          pnpm ls --depth 0 \
+            '@deepseek-ai/dsh' \
+            '@deepseek-ai/cordis' \
+            '@deepseek-ai/dsh-client-ui-layout' \
+            '@deepseek-ai/dsh-client-ui-renderer' \
+            '@deepseek-ai/dsh-client-ui-slots'
       - run: pnpm run verify
