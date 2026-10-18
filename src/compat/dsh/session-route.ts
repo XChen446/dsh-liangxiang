@@ -1,7 +1,7 @@
 /**
  * Read the in-force DSH route model id from a live session.
  *
- * Verified against deepseek-harness 0.1.2-alpha.4 @ 4e84901e:
+ * Verified against deepseek-harness 0.2.1-rc.2 @ 687f282e86:
  *   packages/core/session/src/index.ts `Session.requestHeader()` and
  *   `Session.requestContext()`;
  *   EpochHeader.config.model / RequestContext.model are registration route

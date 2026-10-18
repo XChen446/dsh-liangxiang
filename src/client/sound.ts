@@ -181,3 +181,8 @@ export function playArchiveSeal(): void {
   tone(392, 392, 160, 'sine', 0.07)
   window.setTimeout(() => tone(523, 523, 200, 'sine', 0.06), 130)
 }
+
+/** 敲扁: the badge takes a hit — one short deflating sigh. */
+export function playSquish(): void {
+  tone(520, 180, 280, 'sine', 0.07)
+}

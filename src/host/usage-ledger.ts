@@ -32,16 +32,20 @@ export interface SessionUsageWatermark {
   settledOffset?: number
   /** A first-observation fence prevents inherited/pre-upgrade history minting. */
   baselineOffset?: number
+  /** Session migrations can renumber offsets; never compare across formats. */
+  sessionFormat?: number
 }
 
 export function mergeUsageWatermark(left: SessionUsageWatermark, right: SessionUsageWatermark): SessionUsageWatermark {
-  const settled = [left, right].filter(mark => mark.settledOffset !== undefined)
+  const sessionFormat = Math.max(left.sessionFormat ?? 0, right.sessionFormat ?? 0)
+  const settled = [left, right].filter(mark => mark.settledOffset !== undefined && (mark.sessionFormat ?? 0) === sessionFormat)
   return {
     inputHwm: Math.max(left.inputHwm, right.inputHwm),
     outputHwm: Math.max(left.outputHwm, right.outputHwm),
     ...(settled.length === 0 ? {} : {
       settledOffset: Math.max(...settled.map(mark => mark.settledOffset ?? 0)),
       baselineOffset: Math.min(...settled.map(mark => mark.baselineOffset ?? 0)),
+      ...(sessionFormat === 0 ? {} : { sessionFormat }),
     }),
   }
 }
@@ -163,15 +167,17 @@ export function creditSettledUsageBatch(
   businessDate: string,
   dateOf: (instant: number) => string,
 ): { watermark: SessionUsageWatermark, record: DailyUsageRecord } {
-  const baselineOffset = previous?.baselineOffset ?? (
+  const formatChanged = previous !== undefined && (previous.sessionFormat ?? 0) !== (batch.sessionFormat ?? 0)
+  const baselineOffset = formatChanged ? batch.throughOffset : previous?.baselineOffset ?? (
     previous !== undefined || origin.kind === 'catchup' ? batch.throughOffset : origin.firstLiveSeq
   )
-  const settledOffset = previous?.settledOffset ?? baselineOffset
+  const settledOffset = formatChanged ? baselineOffset : previous?.settledOffset ?? baselineOffset
   const watermark: SessionUsageWatermark = {
     inputHwm: previous?.inputHwm ?? 0,
     outputHwm: previous?.outputHwm ?? 0,
     baselineOffset,
     settledOffset: Math.max(settledOffset, batch.throughOffset),
+    ...(batch.sessionFormat === undefined ? {} : { sessionFormat: batch.sessionFormat }),
   }
   let updated = record
   for (const request of batch.requests) {

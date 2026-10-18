@@ -3,7 +3,7 @@
  * plugin touches, plus the single documented cast that resolves them off the
  * cordis context. We keep these faces structural to minimize direct package
  * coupling and isolate Developer Preview churn. Every member below is
- * verified against deepseek-harness 0.1.2-alpha.4 @ 4e84901e:
+ * verified against deepseek-harness 0.2.1-rc.2 @ 687f282e86:
  *
  * - sessionProjections: packages/session/session-projection/src/index.ts
  *   (`ProjectionChangeListener`, `onChanged`, `snapshot`)
@@ -23,7 +23,7 @@ import type { DshUsageEvent } from './settled-usage.ts'
  * Minimal live-session face. `firstLiveSeq` is the seed length (0 for a
  * genuinely fresh session; >0 for resume/fork whose prefix is borrowed
  * history) — packages/core/session/src/index.ts (`Session.firstLiveSeq`) @
- * 4e84901e. The
+ * 687f282e86. The
  * ledger uses it to decide between crediting-from-zero (fresh) and
  * baselining (borrowed history must never earn retroactive incense).
  */
@@ -45,10 +45,12 @@ export interface DshRequestContext {
 export interface DshSessionRef {
   readonly id: string
   readonly firstLiveSeq: number
+  /** DSH's durable format stamp; absent on pre-header hosts and minimal stubs. */
+  readonly header?: { readonly version: number }
   /** Present on the live DSH session; optional on test stubs. */
   requestHeader?(): DshEpochHeader | undefined
   requestContext?(): DshRequestContext | undefined
-  /** Public Session.snapshotEvents(), alpha.5 db6bdc3576. Read locally only. */
+  /** Public Session.snapshotEvents(), 0.2.1-rc.2 687f282e86. Read locally only. */
   snapshotEvents?(): readonly DshUsageEvent[]
 }
 

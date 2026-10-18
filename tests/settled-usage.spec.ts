@@ -5,7 +5,8 @@ import type { DshSessionEventSource, DshSessionProjections, DshSessionRef } from
 import { UsageProjection } from '../src/host/usage-projection.ts'
 import { createBusinessDateProvider } from '../src/shared/business-date.ts'
 import { DEFAULT_INCENSE_WEIGHT_POLICY, incenseWeightRows } from '../src/domain/index.ts'
-import { nativeUsageSession, nativeUsageFold, sample, finalMessage } from './helpers/dsh-usage.ts'
+import { nativeUsageSession, nativeUsageFold, sample, finalMessage, usageStream } from './helpers/dsh-usage.ts'
+import { mergeUsageWatermark } from '../src/host/usage-ledger.ts'
 
 const now = Date.UTC(2026, 9, 12, 4)
 const date = '2026-10-12'
@@ -57,6 +58,7 @@ describe('real pinned DSH request settlement', () => {
     f.append(session, 'step/start', { turn: 1, step: 1 })
     f.append(session, 'request/context', { provider: 'deepseek-official', model: 'deepseek-flash' })
     f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
+    f.append(session, 'assistant/attempt', { turn: 1, step: 1, stream: usageStream(sample(50_000)) })
     f.append(session, 'llm/retry', { turn: 1, step: 1 })
     expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     f.append(session, 'llm/retry-started', { turn: 1, step: 1, retry: 1 })
@@ -159,15 +161,61 @@ describe('real pinned DSH request settlement', () => {
     const f = feed([session])
     f.append(session, 'step/start', { turn: 1, step: 1 })
     f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: sample(50_000) } })
-    f.append(session, 'assistant/message', finalMessage(undefined))
+    f.append(session, 'assistant/message', { ...finalMessage(undefined), stream: usageStream(sample(50_000)) })
     expect(f.usage.effectiveTokensFor(date)).toBe(25_000)
     expect(nativeUsageFold(session.snapshotEvents()).uncachedInputTokens).toBe(50_000)
+    f.dispose()
+  })
+
+  it('uses the last embedded provider sample on current DSH, with final usage taking precedence', () => {
+    const session = nativeUsageSession()
+    const f = feed([session])
+    f.append(session, 'step/start', { turn: 1, step: 1 })
+    f.append(session, 'assistant/message', {
+      ...finalMessage(undefined, 'deepseek-v4.1-flash-1017'),
+      stream: usageStream(sample(200_000), sample(100_000)),
+    })
+    expect(f.usage.effectiveTokensFor(date)).toBe(50_000)
+    f.append(session, 'step/start', { turn: 1, step: 2 })
+    f.append(session, 'assistant/message', {
+      ...finalMessage(sample(50_000), 'deepseek-v4-pro', 'deepseek-official', 2),
+      stream: usageStream(sample(200_000)),
+    })
+    expect(f.usage.effectiveTokensFor(date)).toBe(100_000)
+    expect(nativeUsageFold(session.snapshotEvents()).uncachedInputTokens).toBe(150_000)
+    f.dispose()
+  })
+
+  it('settles an embedded failed attempt once without requiring legacy chunk events', () => {
+    const session = nativeUsageSession()
+    const f = feed([session])
+    f.append(session, 'step/start', { turn: 1, step: 1 })
+    f.append(session, 'request/context', { provider: 'deepseek-official', model: 'deepseek-flash' })
+    f.append(session, 'assistant/attempt', { turn: 1, step: 1, stream: usageStream(sample(80_000), sample(40_000)) })
+    f.append(session, 'llm/retry', { turn: 1, step: 1 })
+    f.append(session, 'step/end', { turn: 1, step: 1 })
+    expect(f.usage.effectiveTokensFor(date)).toBe(20_000)
+    expect(nativeUsageFold(session.snapshotEvents()).uncachedInputTokens).toBe(40_000)
     f.dispose()
   })
 })
 
 describe('static rules and durable daily accounting', () => {
   const batch = (startOffset: number, endOffset: number): SettledUsageBatch => ({ kind: 'settled-requests', throughOffset: endOffset, requests: [{ startOffset, endOffset, endedAt: now, provider: 'deepseek-official', model: 'deepseek-v4.2-flash', inputTokens: 50_000, outputTokens: 0 }] })
+
+  it('baselines renumbered Session migrations without replaying credit or retaining the old cursor', () => {
+    const usage = projection()
+    usage.hydrate(new Map([['s', { inputHwm: 50_000, outputHwm: 0, settledOffset: 100, baselineOffset: 0 }]]), new Map(), sink)
+    usage.observe('s', { ...batch(1, 4), sessionFormat: 4 }, { kind: 'catchup' })
+    expect(usage.effectiveTokensFor(date)).toBe(0)
+    usage.observe('s', { ...batch(5, 8), sessionFormat: 4 }, { kind: 'live', firstLiveSeq: 4 })
+    expect(usage.effectiveTokensFor(date)).toBe(25_000)
+    const merged = mergeUsageWatermark(
+      { inputHwm: 100_000, outputHwm: 0, settledOffset: 8, baselineOffset: 4, sessionFormat: 4 },
+      { inputHwm: 50_000, outputHwm: 0, settledOffset: 100, baselineOffset: 0 },
+    )
+    expect(merged).toMatchObject({ settledOffset: 8, baselineOffset: 4, sessionFormat: 4 })
+  })
 
   it('uses the same static rules for current and future Flash versions and their tooltip', () => {
     const usage = projection()

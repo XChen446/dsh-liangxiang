@@ -51,9 +51,14 @@ export function sample(inputTokens: number, outputTokens = 0, cacheReadTokens = 
   return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens: inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens }
 }
 
+export function usageStream(...samples: ReturnType<typeof sample>[]) {
+  return samples.map(usage => ({ type: 'chunk' as const, time: Date.now(), chunk: { type: 'usage' as const, usage } }))
+}
+
 export function finalMessage(usage: ReturnType<typeof sample> | undefined, model = 'deepseek-flash', provider = 'deepseek-official', step = 1) {
   return {
     turn: 1, step,
+    stream: [],
     message: { id: `liangxiang-message-${step}`, role: 'assistant', content: [{ type: 'text', text: 'mock' }], source: { kind: 'model', provider, model } },
     ...(usage === undefined ? {} : { usage }),
   }

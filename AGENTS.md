@@ -20,7 +20,11 @@
   alternate brand namespaces to code, configuration, storage, routes, logs,
   deployments, tests, or documentation.
 - 产品 UI/copy 中，中央角色统一称为 **梁子**；不直接使用现实人物姓名。
-- DSH WebUI entry Hover / Focus text: **今日梁相**
+- DSH WebUI entry name, title and default Hover / Focus text: **今日梁相**.
+  A pointer-only rapid-tap toy may temporarily replace the visual tooltip with
+  a short decorative joke (at most 2.6s). Keyboard activation always opens or
+  closes normally; drag/cancel never plays a toy sound; reduced motion disables
+  squash/bounce. No toy text may imply a balance change or introduce a tier.
 - The docked entry's icon IS the current central 梁子 state (one of the five, or
   the 待开梁 placeholder) — never a letter or an abstract logo.
 - The entry is freely placeable: it can be dragged anywhere in the frame and the

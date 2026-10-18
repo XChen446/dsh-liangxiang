@@ -7,7 +7,7 @@ export type UsageObservationOrigin =
   | { kind: 'live', firstLiveSeq: number }
 
 /**
- * Public session/event + snapshotEvents seam, alpha.5 db6bdc3576.
+ * Public session/event + snapshotEvents seam, 0.2.1-rc.2 687f282e86.
  * History is scanned once on attachment; normal work folds one event.
  * Logged provider usage has tokenUsage's bucket/replacement semantics, but
  * provisional samples never reach the incense ledger. Missing APIs fail closed.
@@ -32,11 +32,12 @@ export function attachUsageObservation(
       if (closed !== null) requests.push(closed)
     }
     folds.set(session, fold)
+    const format = session.header === undefined ? {} : { sessionFormat: session.header.version }
     if (initial) {
-      onUsage(session.id, { kind: 'settled-requests', throughOffset: fold.throughOffset, requests }, { kind: 'catchup' }, null)
+      onUsage(session.id, { kind: 'settled-requests', ...format, throughOffset: fold.throughOffset, requests }, { kind: 'catchup' }, null)
     } else {
-      onUsage(session.id, { kind: 'settled-requests', throughOffset: session.firstLiveSeq, requests: [] }, { kind: 'catchup' }, null)
-      onUsage(session.id, { kind: 'settled-requests', throughOffset: fold.throughOffset, requests }, { kind: 'live', firstLiveSeq: session.firstLiveSeq }, null)
+      onUsage(session.id, { kind: 'settled-requests', ...format, throughOffset: session.firstLiveSeq, requests: [] }, { kind: 'catchup' }, null)
+      onUsage(session.id, { kind: 'settled-requests', ...format, throughOffset: fold.throughOffset, requests }, { kind: 'live', firstLiveSeq: session.firstLiveSeq }, null)
     }
     return fold
   }
@@ -49,7 +50,9 @@ export function attachUsageObservation(
     }
     const closed = fold.consume(event)
     if (closed !== null) onUsage(session.id, {
-      kind: 'settled-requests', throughOffset: fold.throughOffset, requests: [closed],
+      kind: 'settled-requests',
+      ...(session.header === undefined ? {} : { sessionFormat: session.header.version }),
+      throughOffset: fold.throughOffset, requests: [closed],
     }, { kind: 'live', firstLiveSeq: session.firstLiveSeq }, null)
   })
 }
