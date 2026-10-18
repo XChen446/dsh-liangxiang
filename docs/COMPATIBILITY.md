@@ -7,7 +7,7 @@
 
 | 项 | 当前事实 |
 |---|---|
-| 梁相版本 | 1.2.0-rc.1 |
+| 梁相版本 | 1.2.0-rc.2 |
 | 状态 | 本地测试候选，尚未公开发布/生产部署 |
 | DSH CLI / Web App / UI renderer/layout/slots | 0.2.1-rc.2（同一版本） |
 | DSH tag / commit | dsh-v0.2.1-rc.2 / 687f282e86 |

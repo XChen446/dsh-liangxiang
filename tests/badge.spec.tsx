@@ -62,23 +62,8 @@ describe('LiangxiangBadge entry', () => {
 
   it('keeps the frozen hover copy and names the state for assistive tech', () => {
     const { button } = renderButton(false)
-    expect(button.props.title).toBe(HOVER_TEXT)
+    expect(button.props.title).toBeUndefined() // One custom tooltip; no competing native popup.
     expect(button.props['aria-label']).toBe(`${HOVER_TEXT}：${LIANGZI_STATE_LABELS.liang_sheng}`)
-  })
-
-  it('can place the hover label below the badge, opposite an above-stacked panel', () => {
-    const tree = renderDeep(
-      <BadgeButton
-        open
-        liangziState="liang_sheng"
-        tooltipSide="below"
-        onToggle={() => undefined}
-        onEscape={() => undefined}
-        buttonRef={null}
-      />,
-    )
-    const button = findAll(tree, (node) => node.type === 'button')[0]
-    expect(button?.props['data-tooltip-side']).toBe('below')
   })
 
   it('probes for a newer 梁案 on hover and keyboard focus', () => {

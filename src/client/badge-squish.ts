@@ -1,26 +1,24 @@
-/** Decorative badge feedback; never changes incense, votes or Liangzi state. */
+/** Decorative feedback only; never changes incense, votes or Liangzi state. */
 export const SQUISH_LABELS = [
-  '梁子已扁平化',
-  '轻点，梁子还要上班',
-  '今日含梁量有点高',
-  '拍一拍，梁子弹回来',
-  '香火照常，梁子稍扁',
+  '好好好，梁子已读',
+  '别拍了，已经很 Q 了',
+  '是谁在给梁子打节拍',
+  '这班上得有点弹性',
+  '收到，正在假装很忙',
+  '你拍的是梁子的倔强',
+  '再拍就要弹回去了',
+  '梁子：申请原地躺平',
 ] as const
 
-export const SQUISH_COMBO_COUNT = 3
-export const SQUISH_COMBO_RELEASE_MS = 900
+/** Immediate squash, then a short window to distinguish open/close from play. */
+export const SQUISH_TAP_WINDOW_MS = 400
+export const SQUISH_IDLE_MS = 750
+export const SQUISH_COMMENT_GAP_MS = 140
 export const SQUISH_LABEL_LINGER_MS = 2_600
-/** Shared by the CSS duration and the attribute cleanup timer. */
+export const SQUISH_MAX_ROWS = 3
 export const SQUISH_ANIM_MS = 680
 
-export function pickSquishLabel(): string {
-  return SQUISH_LABELS[Math.floor(Math.random() * SQUISH_LABELS.length)]!
-}
-
-export type SquishAction = 'toggle' | 'silent' | 'label'
-
-/** First two pointer taps toggle; later taps play, with a label every third. */
-export function squishAction(tapCount: number): SquishAction {
-  if (!Number.isFinite(tapCount) || tapCount < SQUISH_COMBO_COUNT) return 'toggle'
-  return tapCount % SQUISH_COMBO_COUNT === 0 ? 'label' : 'silent'
+export function pickSquishLabel(previous = ''): string {
+  const pool = SQUISH_LABELS.filter(label => label !== previous)
+  return pool[Math.floor(Math.random() * pool.length)]!
 }
