@@ -62,7 +62,8 @@ export class DayEndService extends AuthoritySlot {
   private scheduling = false
 
   constructor(inner: LiangHostService, private readonly clock: Clock,
-    private readonly changingMode: () => boolean, private readonly warn: (message: string) => void) {
+    private readonly changingMode: () => boolean, private readonly warn: (message: string) => void,
+    private readonly autoDumpPeriodMs: number = AUTO_DUMP_PERIOD_MS) {
     super(inner)
   }
 
@@ -174,7 +175,7 @@ export class DayEndService extends AuthoritySlot {
     }
     // First time the guard holds, start measuring the refill period. Every
     // later round is re-armed from the shot itself in `runAutoDump`.
-    if (this.loopReadyAt === 0) this.loopReadyAt = this.clock.now() + AUTO_DUMP_PERIOD_MS
+    if (this.loopReadyAt === 0) this.loopReadyAt = this.clock.now() + this.autoDumpPeriodMs
     const idleUntil = Math.max(this.gestureUntil, this.lastManualAt + MANUAL_IDLE_MS)
     let delay = Math.max(0, this.loopReadyAt - this.clock.now(), idleUntil - this.clock.now())
     if (this.manualPending > 0) delay = Math.max(delay, RETRY_MS)
@@ -269,7 +270,7 @@ export class DayEndService extends AuthoritySlot {
       // Reset on the attempt, not on its outcome. Accepted, partially accepted
       // and rate-limited shots all leave the bucket empty, so the next full
       // request is one refill period away either way — no 429 special case.
-      if (attempted) this.loopReadyAt = this.clock.now() + AUTO_DUMP_PERIOD_MS
+      if (attempted) this.loopReadyAt = this.clock.now() + this.autoDumpPeriodMs
       this.loopRunning = false
       this.schedule()
     }

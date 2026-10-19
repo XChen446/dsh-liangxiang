@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FakeAuthoritativeLiangService } from '../src/host/fake-service.ts'
 import { AUTO_DUMP_PERIOD_MS, DayEndService } from '../src/host/day-end-service.ts'
+import { DEFAULT_AUTO_DUMP_SECONDS, resolveAutoDumpPeriodMs, resolveHostRuntimeConfig } from '../src/host/config.ts'
 import { VOTE_COUNT_MAX } from '../src/domain/index.ts'
 import { DEFAULT_DAY_END, type DayEndState, type DayEndPersistence } from '../src/shared/day-end.ts'
 import type { LiangHostService } from '../src/host/service.ts'
@@ -12,7 +13,7 @@ const lateEvening = Date.UTC(2026, 9, 19, 15, 0, 0)
 const live = new Set<DayEndService>()
 afterEach(() => { for (const service of live) service.dispose(); live.clear(); vi.useRealTimers(); vi.restoreAllMocks() })
 
-function setup(enabled = true, remaining = 0, start = midday) {
+function setup(enabled = true, remaining = 0, start = midday, periodMs = AUTO_DUMP_PERIOD_MS) {
   vi.useFakeTimers()
   vi.setSystemTime(start)
   const clock = { now: () => Date.now() }
@@ -26,12 +27,35 @@ function setup(enabled = true, remaining = 0, start = midday) {
     setDayEndState: vi.fn(async next => { state = structuredClone(next) }),
   }
   let changing = false
-  const service = new DayEndService(inner, clock, () => changing, () => undefined)
+  const service = new DayEndService(inner, clock, () => changing, () => undefined, periodMs)
   live.add(service)
   service.attachDayEndPersistence(persistence)
   service.startDayEnd()
   return { inner, service, persistence, state: () => state, changing: (value: boolean) => { changing = value } }
 }
+
+describe('intraday dump cadence knob', () => {
+  it('defaults to exactly one bucket refill period, without warning', () => {
+    const warnings: string[] = []
+    expect(resolveAutoDumpPeriodMs({}, message => warnings.push(message))).toBe(600_000)
+    expect(AUTO_DUMP_PERIOD_MS).toBe(600_000)
+    expect(DEFAULT_AUTO_DUMP_SECONDS).toBe(600)
+    expect(warnings).toEqual([])
+  })
+
+  it('takes an explicit LIANGXIANG_AUTO_DUMP_SECONDS override for debugging', () => {
+    expect(resolveAutoDumpPeriodMs({ LIANGXIANG_AUTO_DUMP_SECONDS: '5' }, () => undefined)).toBe(5_000)
+    expect(resolveHostRuntimeConfig({ LIANGXIANG_AUTO_DUMP_SECONDS: '30' }, () => undefined).autoDumpPeriodMs).toBe(30_000)
+  })
+
+  it('falls back loudly on a malformed value and clamps an out-of-range one', () => {
+    const warnings: string[] = []
+    expect(resolveAutoDumpPeriodMs({ LIANGXIANG_AUTO_DUMP_SECONDS: 'soon' }, m => warnings.push(m))).toBe(600_000)
+    expect(warnings.join('\n')).toContain('LIANGXIANG_AUTO_DUMP_SECONDS')
+    expect(resolveAutoDumpPeriodMs({ LIANGXIANG_AUTO_DUMP_SECONDS: '0' }, m => warnings.push(m))).toBe(600_000)
+    expect(resolveAutoDumpPeriodMs({ LIANGXIANG_AUTO_DUMP_SECONDS: '99999' }, () => undefined)).toBe(3_600_000)
+  })
+})
 
 describe('intraday automatic dump', () => {
   it('stays off, and stays quiet below one full request, while the switch is off', async () => {
@@ -60,6 +84,18 @@ describe('intraday automatic dump', () => {
     expect(vote).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
     expect(vote).toHaveBeenCalledTimes(2)
+  })
+
+  it('follows a shortened period so the cadence can be observed while debugging', async () => {
+    const fast = 1_000
+    const s = setup(true, 1_500, midday, fast)
+    const vote = vi.spyOn(s.inner as LiangHostService, 'vote')
+    await vi.advanceTimersByTimeAsync(fast)
+    expect(vote).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(fast)
+    expect(vote).toHaveBeenCalledTimes(2)
+    // The default period would not have fired at all this early.
+    expect(vote.mock.calls[0]?.[0]).toMatchObject({ count: VOTE_COUNT_MAX })
   })
 
   it('keeps no durable job: the authoritative balance is the queue', async () => {

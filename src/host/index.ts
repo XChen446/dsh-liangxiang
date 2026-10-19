@@ -88,6 +88,7 @@ export function apply(ctx: DshHostContext): void {
     service: serviceConfig,
     backendUrl,
     defaultAuthorityPreference,
+    autoDumpPeriodMs,
   } = resolveHostRuntimeConfig(process.env, warn)
   const identityRef: { current: CommunityKeypair | null } = { current: null }
   const local = new FakeAuthoritativeLiangService(serviceConfig, systemClock, warn)
@@ -101,7 +102,7 @@ export function apply(ctx: DshHostContext): void {
       warn,
       identityRef,
     })
-  const slot = new DayEndService(local, systemClock, () => modeTransitioning, warn)
+  const slot = new DayEndService(local, systemClock, () => modeTransitioning, warn, autoDumpPeriodMs)
   const service: LiangHostService = slot
   let online: BackendLiangService | null = defaultAuthorityPreference === 'online'
     ? createOnlineService()
