@@ -24,11 +24,11 @@
 
 ![安装完成后点击立即启用](assets/install/desktop-enable-plugin.jpg)
 
-*截图为安装流程示意，图中旧版本号不代表本版；安装后请在「梁相案牍 → 当前版本」核对。*
+*安装后可在「梁相案牍 → 当前版本」核对版本。*
 
 以上流程无需命令行、额外市场插件或索引配置。已有“发现”或社区市场入口时，同样搜索完整包名 `dsh-liangxiang`。
 
-更新与卸载在 **插件 → 已安装 → 梁相** 完成。若所用市场没有更新按钮，先卸载插件，再按原流程重新安装。
+**升级**：在 **插件 → 已安装 → 梁相** 卸载插件，再按上面的步骤安装新版。当前官方入口对社区插件采用卸载后重装的更新方式，见 [DSH 官方说明](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/docs/upgrade-guide/v0.2.1-alpha.2/plugin-install-over-installed/guide.md)。
 卸载不删除本机香火账本；不要额外清理 DSH 的数据目录。升级后在 **梁相案牍 → 当前版本** 核对版本与更新说明。
 
 Desktop 的 `desktop` Profile 由桌面应用独占管理。普通 npm CLI 的 `web` 命令不能用于它；
@@ -61,7 +61,7 @@ npx --yes @deepseek-ai/dsh web
 npx --yes @deepseek-ai/dsh plugin --profile web remove dsh-liangxiang
 ```
 
-命令行安装、更新、卸载均在独立临时 Profile 核验；不会因删除插件依赖而删除账本。
+安装、更新和卸载插件均保留本机香火与梁祠记录。
 不要为了安装梁相再装旧 `dshmarket`；已使用社区市场的用户可按其兼容说明继续操作。
 
 ### 本地发行包
@@ -73,16 +73,9 @@ npx --yes @deepseek-ai/dsh plugin --profile web remove dsh-liangxiang
 npx --yes @deepseek-ai/dsh plugin --profile web add ./dsh-liangxiang-1.2.0.tgz
 ```
 
-源码候选 tarball 的安装由干净 Profile 门禁验证，不代表公开正式包已升级。
-
 ## 在线连接与代理
 
-在线模式需要运行 DSH 的机器能访问社区服务器。若一直无法连接，可能是网络问题；
-包括福建在内的部分地区有连接不稳定反馈，可尝试让 DSH 使用代理后重试，具体取决于网络与运营商。
-只给浏览器配置代理，未必覆盖发请求的 DSH Host。
-
-可使用代理软件的 TUN 模式，或在 DSH 实际使用的 `$DSH_HOME/.env` 设置 HTTP 代理，
-完全退出并重启 DSH。以下端口需替换为自己的 HTTP 代理端口：
+在线模式无法连接时，可启用代理软件的 TUN 模式，或在 DSH 主目录的 `$DSH_HOME/.env` 中设置 HTTP 代理，然后完全退出并重启 DSH。将下面的 `7890` 换成自己的 HTTP 代理端口：
 
 ```dotenv
 HTTPS_PROXY="http://127.0.0.1:7890"
