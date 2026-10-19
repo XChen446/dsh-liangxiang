@@ -8,7 +8,7 @@ const browserAuthUrl = process.env.LIANGXIANG_BROWSER_AUTH_URL
 
 export async function bootInstalledLiangxiang(
   page: Page,
-  options: { welcomeSeen?: boolean, releaseNotesSeen?: boolean } = {},
+  options: { welcomeSeen?: boolean, releaseNotesSeen?: boolean, seedPreferences?: boolean } = {},
 ): Promise<void> {
   // The suite controls cosmetic browser preferences only. Authority is set by
   // the isolated Profile smoke before Playwright starts.
@@ -16,7 +16,9 @@ export async function bootInstalledLiangxiang(
   // contexts do not retain the project-level media option across token auth.
   const desiredDark = await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.addInitScript(({ welcomeSeen, releaseNotesSeen, releaseNotesVersion }) => {
+  // Persistence tests need genuinely empty browser storage and must preserve
+  // the user's explicit choices on reload instead of reseeding each navigation.
+  if (options.seedPreferences !== false) await page.addInitScript(({ welcomeSeen, releaseNotesSeen, releaseNotesVersion }) => {
     if (welcomeSeen) localStorage.setItem('liangxiang:welcome:v2', 'seen')
     else localStorage.removeItem('liangxiang:welcome:v2')
     if (releaseNotesSeen) {

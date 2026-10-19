@@ -5,7 +5,7 @@
  * test deliberately fails when a version bump forgets to refresh this copy.
  * This is cosmetic localStorage only and never participates in authority.
  */
-export const RELEASE_NOTES_VERSION = '1.2.0-rc.8'
+export const RELEASE_NOTES_VERSION = '1.2.0-rc.9'
 export const RELEASE_NOTES_TITLE = `梁相 v${RELEASE_NOTES_VERSION} 更新`
 export const RELEASE_NOTES_ITEMS = [
   '梁子添新相：梁位低于 25% 显出小难梁，25% 到不足 50% 仍是梁工。',
