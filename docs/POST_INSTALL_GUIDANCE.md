@@ -26,6 +26,6 @@
 
 在线选择场景要求 `LIANGXIANG_SMOKE_BACKEND_URL` 显式指向回环测试服务，否则跳过；
 测试结束恢复离线模式与日终关闭。专项结果及完整验证边界见
-[`RELEASE_READINESS_1_2.md`](RELEASE_READINESS_1_2.md#rc9-安装引导增量验收)。
+[`RELEASE_READINESS_1_2.md`](RELEASE_READINESS_1_2.md#rc9-完整候选验收)。
 
 本次验证只使用独立临时 Profile、SQLite 和本机服务；未修改用户 Profile、真实社区数据或其他手测环境。
