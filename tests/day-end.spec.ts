@@ -276,6 +276,93 @@ describe('one opt-in day-end dump', () => {
     expect(s.inner.getWireState().personal.usedIncenseToday).toBe(8)
   })
 
+  it.each(['refresh', 'persist'] as const)('lets a real manual intent overtake automatic %s without spending twice', async stage => {
+    const s = setup()
+    let release: (() => void) | undefined
+    const held = new Promise<void>(resolve => { release = resolve })
+    if (stage === 'refresh') vi.spyOn(s.inner, 'refreshNow').mockImplementationOnce(async () => { await held })
+    else {
+      const save = vi.mocked(s.persistence.setDayEndState).getMockImplementation()!
+      vi.mocked(s.persistence.setDayEndState).mockImplementationOnce(async next => { await held; await save(next) })
+    }
+    const vote = vi.spyOn(s.inner as LiangHostService, 'vote')
+    await vi.advanceTimersByTimeAsync(1_000)
+    const manual = s.service.vote({ caseId: s.inner.getWireState().activeCase.id,
+      voteType: 'down', requestId: `manual-during-${stage}`, count: 1 })
+    release?.()
+    expect((await manual).result.status).toBe('accepted')
+    expect(vote).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1_999)
+    expect(vote).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(vote).toHaveBeenCalledTimes(2)
+    // Once persisted, an intent stays immutable; authority clamps its spend
+    // to the seven sticks left by the manual request.
+    expect(vote.mock.calls[1]?.[0]).toMatchObject({ voteType: 'up', count: stage === 'persist' ? 8 : 7 })
+    expect(s.inner.getWireState().personal).toMatchObject({ usedIncenseToday: 8, remainingIncense: 0 })
+    expect(s.state().jobs.local?.done).toBe(true)
+  })
+
+  it('drains a hundred queued manual attempts against the last stick before considering an automatic dump', async () => {
+    const s = setup(true, 1)
+    const vote = vi.spyOn(s.inner as LiangHostService, 'vote')
+    const caseId = s.inner.getWireState().activeCase.id
+    const outcomes = await Promise.allSettled(Array.from({ length: 100 }, (_, i) => s.service.vote({
+      caseId, voteType: i % 2 === 0 ? 'down' : 'up', requestId: `last-stick-manual-${i}`, count: 1,
+    })))
+    expect(outcomes.filter(o => o.status === 'fulfilled' && o.value.result.status === 'accepted')).toHaveLength(1)
+    for (const outcome of outcomes) if (outcome.status === 'rejected') {
+      expect(outcome.reason).toMatchObject({ status: 429, code: 'vote_rate_limited' })
+    }
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(vote).toHaveBeenCalledTimes(100)
+    expect(s.inner.getWireState().personal).toMatchObject({ usedIncenseToday: 1, remainingIncense: 0 })
+    expect(s.state().jobs.local).toBeUndefined()
+  })
+
+  it('replays the accepted daily intent after completion-save failure despite manual work, new credit and a new direction', async () => {
+    const s = setup()
+    const save = vi.mocked(s.persistence.setDayEndState).getMockImplementation()!
+    let failCompletion = true
+    vi.mocked(s.persistence.setDayEndState).mockImplementation(async next => {
+      if (next.jobs.local?.done && failCompletion) { failCompletion = false; throw new Error('completion write interrupted') }
+      await save(next)
+    })
+    const vote = vi.spyOn(s.inner as LiangHostService, 'vote')
+    await vi.advanceTimersByTimeAsync(1_000)
+    const originalIntent = vote.mock.calls[0]?.[0]
+    expect(s.state().jobs.local?.done).toBe(false)
+    s.inner.creditSimulatedUsage(3 * 50_000)
+    await s.service.vote({ caseId: s.inner.getWireState().activeCase.id, voteType: 'down', requestId: 'manual-after-auto-receipt', count: 1 })
+    await s.service.setDayEndPreferences({ enabled: true, voteType: 'down' })
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(vote).toHaveBeenCalledTimes(3)
+    expect(vote.mock.calls[2]?.[0]).toEqual(originalIntent)
+    expect(s.state()).toMatchObject({ voteType: 'down', jobs: { local: { voteType: 'up', done: true } } })
+    expect(s.inner.getWireState().personal).toMatchObject({ usedIncenseToday: 9, remainingIncense: 2 })
+  })
+
+  it.each(['disable', 'cutoff'] as const)('does not send when %s wins during slow automatic refresh', async action => {
+    const s = setup()
+    let release: (() => void) | undefined
+    const held = new Promise<void>(resolve => { release = resolve })
+    vi.spyOn(s.inner, 'refreshNow').mockImplementationOnce(async () => { await held })
+    const vote = vi.spyOn(s.inner as LiangHostService, 'vote')
+    await vi.advanceTimersByTimeAsync(1_000)
+    if (action === 'disable') await s.service.setDayEndPreferences({ enabled: false, voteType: 'up' })
+    else await vi.advanceTimersByTimeAsync(55_000)
+    release?.()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(vote).not.toHaveBeenCalled()
+    expect(s.inner.getWireState().personal).toMatchObject({ usedIncenseToday: 0, remainingIncense: 8 })
+    expect(s.state().jobs.local).toBeUndefined()
+    if (action === 'cutoff') {
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(s.inner.getWireState()).toMatchObject({ businessDate: '2026-10-20', personal: { usedIncenseToday: 0, remainingIncense: 0 } })
+      expect(vote).not.toHaveBeenCalled()
+    }
+  })
+
   it('keeps a queued request on its original authority rather than retargeting it', async () => {
     const s = setup(false)
     const vote = vi.spyOn(s.inner as LiangHostService, 'vote')

@@ -1,13 +1,13 @@
 # COMPATIBILITY — DSH 兼容性权威证据
 
-源码兼容基线最后核对：2026-10-18。DSH 仍是预稳定 API；所有不稳定触点只在
+源码兼容基线最后核对：2026-10-19。DSH 仍是预稳定 API；所有不稳定触点只在
 `src/compat/dsh/` 内适配，不修改上游源码，不凭版本号宣称永久前向兼容。
 
 ## 当前候选
 
 | 项 | 当前事实 |
 |---|---|
-| 梁相版本 | 1.2.0-rc.8 |
+| 梁相版本 | 1.2.0 |
 | 状态 | 本地测试候选，尚未公开发布/生产部署 |
 | DSH CLI / Web App / UI renderer/layout/slots | 0.2.1-rc.2（同一版本） |
 | DSH tag / commit | dsh-v0.2.1-rc.2 / 687f282e86 |
@@ -16,7 +16,7 @@
 | 验证运行时 | Node 22.23.1 / pnpm 11.28.5 |
 | 上游源码工具链 | Node ^22.19.0 或 >=24；pnpm 11.28.5 |
 
-2026-10-18 查询时，DSH CLI 的 npm `latest` 为 0.2.0-rc.2，`next` 为
+2026-10-19 查询时，DSH CLI 的 npm `latest` 为 0.2.0-rc.2，`next` 为
 0.2.1-rc.2，几个 UI 包的 `latest` 仍指向不同旧号。开发依赖与临时 Profile
 使用明确的同版候选号，避免混装。正式用户安装指引不因此改为预览标签。
 
@@ -33,6 +33,7 @@
 | 重试边界 | llm/llm-retry/src/types.ts，core/agent-loop/src/agent.ts | assistant/attempt 结算无消息的失败/取消尝试；retry-started 开启下一尝试 |
 | 同源路由 | host/webserver/src/index.ts 的 WebServer.register / WebRoute | exact/prefix + handler 的最小结构面不变 |
 | 存储 | storage/storage-domain/src/index.ts、spec.ts、domain.ts | open、table、get/entries/put/delete/close 的结构面不变；可选字段向后兼容 |
+| 初始停靠 | 0.2.0-rc.2 / `639ed01539` 与 0.2.1-rc.2 / `687f282e86` 的 packages/client/ui-settings-account/src/client/AccountMenu.tsx | 内部 DOM seam，仅读取可见底部账户按钮一次，在首帧前给新位置保留 8px；无观察器/追随，不覆盖已保存位置 |
 | 浏览器包装 | client/web/src/platform.ts、client/tsdown.client.ts | 内部兼容缝；每次升级重审计，并检查实际 bundle 的 require |
 
 ## 用量和迁移

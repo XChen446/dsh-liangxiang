@@ -20,8 +20,9 @@ export const BADGE_ICON_SIZE = 42
 export const BADGE_MARGIN = 12
 /**
  * Distance from the viewport bottom to the badge bottom at the default dock.
- * DSH 0.2.1-rc.2 places the 36px account-menu trigger above the 6px
- * sidebar inset, so 50px leaves an intentional 8px visual gap above it.
+ * Fallback for shells without a measurable account control. On a fresh dock,
+ * compat/dsh reads the actual footer once so shell versions/sign-in states
+ * can retain the same 8px gap without changing a saved user position.
  */
 export const SETTINGS_CLEARANCE = 50
 /**
@@ -55,10 +56,10 @@ export interface PanelPlacement {
 }
 
 /** Default dock: bottom-left, sitting just above the DSH settings control. */
-export function defaultBadgePosition(viewport: Viewport): BadgePoint {
+export function defaultBadgePosition(viewport: Viewport, clearance = SETTINGS_CLEARANCE): BadgePoint {
   return {
     x: BADGE_MARGIN,
-    y: Math.max(BADGE_MARGIN, viewport.height - BADGE_SIZE - SETTINGS_CLEARANCE),
+    y: Math.max(BADGE_MARGIN, viewport.height - BADGE_SIZE - clearance),
   }
 }
 
@@ -79,21 +80,27 @@ function isPoint(value: unknown): value is BadgePoint {
     && typeof record.y === 'number' && Number.isFinite(record.y)
 }
 
+export function hasSavedBadgePosition(storage: Pick<Storage, 'getItem'> | null): boolean {
+  try { return storage !== null && isPoint(JSON.parse(storage.getItem(BADGE_POSITION_STORAGE_KEY) ?? 'null')) }
+  catch { return false }
+}
+
 /** Read the stored position, clamped; the default dock when absent/corrupt. */
 export function loadBadgePosition(
   viewport: Viewport,
   storage: Pick<Storage, 'getItem'> | null,
+  clearance = SETTINGS_CLEARANCE,
 ): BadgePoint {
-  if (storage === null) return defaultBadgePosition(viewport)
+  if (storage === null) return defaultBadgePosition(viewport, clearance)
   try {
     const raw = storage.getItem(BADGE_POSITION_STORAGE_KEY)
-    if (raw === null) return defaultBadgePosition(viewport)
+    if (raw === null) return defaultBadgePosition(viewport, clearance)
     const parsed = JSON.parse(raw) as unknown
-    if (!isPoint(parsed)) return defaultBadgePosition(viewport)
+    if (!isPoint(parsed)) return defaultBadgePosition(viewport, clearance)
     return clampBadgePosition(parsed, viewport)
   } catch {
     // A quota/parse/privacy-mode failure must never break the entry.
-    return defaultBadgePosition(viewport)
+    return defaultBadgePosition(viewport, clearance)
   }
 }
 

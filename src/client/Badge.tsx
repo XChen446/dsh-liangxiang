@@ -11,23 +11,27 @@
  * reduced-motion detection, and the transient avatar-pulse / 凝香 /
  * vote-feedback timers. All business state lives in the store.
  */
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, RefObject } from 'react'
 import { VOTE_COUNT_MAX, type LiangziState, type VoteType } from '../domain/index.ts'
 import { EMPTY_INCENSE_FEEDBACK_MS, VOTE_FEEDBACK_MS, formatAcceptedVoteFeedback, HOMEPAGE_URL, HOVER_TEXT, LIANGZI_STATE_LABELS, NO_INCENSE_GAG, NO_INCENSE_REASON, RECONCILE_DONE, VOTE_DOWN_NAME, VOTE_RATE_LIMITED, VOTE_UP_NAME, isEmptyIncenseFeedback } from '../shared/index.ts'
 import type { HostAuthorityPreference } from '../shared/wire.ts'
+import { initialDshDockClearance } from '../compat/dsh/default-dock.ts'
 import { readLocalEpithet, rememberLocalEpithetVote } from './local-epithet-store.ts'
 import { readLocalIncenseStats, rememberLocalIncenseVote } from './local-incense-store.ts'
 import { cycleSoundLevel, playArchiveSeal, playIncenseEarn, playLiangziShift, playNoIncense, playSquish, playVolumePreview, playVoteDown, playVoteDump, playVoteUp, soundLevel as readSoundLevel } from './sound.ts'
 import { DUMP_AUTO_RELEASE_MS, chargeProgress, holdReleaseAction } from './vote-charge.ts'
-import { hasSeenWelcome, markWelcomeSeen } from './welcome.ts'
+import { hasSeenWelcome, markWelcomeSeen, WELCOME_STORAGE_KEY } from './welcome.ts'
 import { pickSquishLabel, SQUISH_ANIM_MS, SQUISH_DOUBLE_MS, SQUISH_COMMENT_GAP_MS, SQUISH_LABEL_LINGER_MS, SQUISH_MAX_ROWS } from './badge-squish.ts'
 import { BadgeFeedback } from './BadgeFeedback.tsx'
 import type { BadgeComment } from './badge-feedback.ts'
 import {
   BADGE_ICON_SIZE,
+  SETTINGS_CLEARANCE,
   BADGE_SIZE,
   clampBadgePosition,
+  defaultBadgePosition,
+  hasSavedBadgePosition,
   loadBadgePosition,
   loadPanelOpen,
   panelPlacementFor,
@@ -45,7 +49,7 @@ import { Panel } from './Panel.tsx'
 import { color } from './theme.ts'
 import { useThrottleFill } from './use-throttle-fill.ts'
 import { useTweenedCount } from './use-tweened-count.ts'
-import { hasSeenReleaseNotes, markReleaseNotesSeen } from './release-notes.ts'
+import { hasSeenReleaseNotes, markReleaseNotesSeen, releaseNotesStorageKey } from './release-notes.ts'
 import { loadDismissedBroadcastId, markBroadcastDismissed } from './broadcast-dismissal.ts'
 
 /** Preserve the exact earned-incense jump carried by one authoritative frame. */
@@ -259,6 +263,17 @@ export function LiangxiangBadge(): ReactElement {
   })
   const [welcomeVisible, setWelcomeVisible] = useState(() => !hasSeenWelcome())
   const [releaseNotesVisible, setReleaseNotesVisible] = useState(() => !hasSeenReleaseNotes())
+  useEffect(() => {
+    // Another tab completing guidance must not leave this one blocked or ask
+    // for a second authority choice. Clearing storage never chooses a mode.
+    const onStorage = (event: StorageEvent): void => {
+      if (event.storageArea !== localStorage || event.newValue !== 'seen') return
+      if (event.key === WELCOME_STORAGE_KEY) setWelcomeVisible(false)
+      if (event.key === releaseNotesStorageKey()) setReleaseNotesVisible(false)
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
   const [dismissedBroadcastId, setDismissedBroadcastId] = useState(() => loadDismissedBroadcastId())
   // Reopening the panel while offline reconnects; while live it forces a
   // host re-bootstrap so the expanded 今日梁案 is not up to ~1s stale.
@@ -338,11 +353,20 @@ export function LiangxiangBadge(): ReactElement {
   // Free placement: drag the entry anywhere; the point is clamped into the
   // frame on load and on resize, and persisted as a cosmetic preference only.
   const viewport = useViewport()
-  const [position, setPosition] = useState<BadgePoint>(() =>
-    loadBadgePosition(
-      { width: viewport.width, height: viewport.height },
-      typeof localStorage === 'undefined' ? null : localStorage,
-    ))
+  const freshDock = useRef(false)
+  const [position, setPosition] = useState<BadgePoint>(() => {
+    const storage = typeof localStorage === 'undefined' ? null : localStorage
+    freshDock.current = !hasSavedBadgePosition(storage)
+    return loadBadgePosition(viewport, storage)
+  })
+  useLayoutEffect(() => {
+    if (!freshDock.current) return
+    freshDock.current = false
+    // Read after the shell's DOM commit, before the first paint. Never follow
+    // footer changes or modify a user-saved point after the panel is visible.
+    const clearance = initialDshDockClearance(viewport.height, document) ?? SETTINGS_CLEARANCE
+    setPosition(defaultBadgePosition(viewport, clearance))
+  }, [viewport])
   useEffect(() => {
     setPosition((current) => settleBadgePosition(current, viewport))
   }, [viewport])
@@ -773,7 +797,7 @@ export function LiangxiangBadge(): ReactElement {
     store.setDayEndPreferences(preferences).then(
       () => setVoteFeedback(voteType === undefined
         ? (preferences.enabled ? '已开启日终上香 · 23:59' : '已关闭日终上香')
-        : `日终默认${voteType === 'up' ? '夯' : '拉'}`),
+        : `日终自动倾炉：默认投${voteType === 'up' ? '夯' : '拉'}`),
       () => setVoteFeedback('日终设置未保存，请稍后重试'),
     ).finally(() => { dayEndSaving.current = false; setDayEndPending(false) })
   }

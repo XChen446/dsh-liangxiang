@@ -5,12 +5,12 @@
  * Choosing local asks the current Host process to switch explicitly; it is
  * deliberately not persisted as a browser authority preference.
  */
-const WELCOME_KEY = 'liangxiang:welcome:v2'
+export const WELCOME_STORAGE_KEY = 'liangxiang:welcome:v2'
 
 export function hasSeenWelcome(): boolean {
   try {
     return typeof localStorage === 'undefined'
-      || localStorage.getItem(WELCOME_KEY) === 'seen'
+      || localStorage.getItem(WELCOME_STORAGE_KEY) === 'seen'
   } catch {
     return true
   }
@@ -18,7 +18,7 @@ export function hasSeenWelcome(): boolean {
 
 export function markWelcomeSeen(): void {
   try {
-    localStorage.setItem(WELCOME_KEY, 'seen')
+    localStorage.setItem(WELCOME_STORAGE_KEY, 'seen')
   } catch {
     /* ignore */
   }

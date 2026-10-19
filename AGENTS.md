@@ -199,7 +199,7 @@ incense.
   to empty arbitrarily large balances. No per-stick queue, adaptive direction,
   new vote type, privilege or rate-limit exemption.
 - Right-click / keyboard context menu on 夯 or 拉 only saves the default direction
-  and shows `日终默认夯/拉`. It never votes or enables the day-end switch.
+  and shows `日终自动倾炉：默认投夯/拉`. It never votes or enables the day-end switch.
 - Clicking the entire day-end tile toggles it; show `已开启` / `已关闭` and
   `保存中…` while persisting. Keep timing, direction and running requirements
   in its hover/focus tooltip, never as a permanent explanatory paragraph.

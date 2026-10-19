@@ -50,8 +50,8 @@ describe('package.json dsh manifests', () => {
   it('keeps current authority documents on the source version without rewriting history', () => {
     const escaped = manifest.version.replaceAll('.', '\\.')
     const markers: Array<[string, RegExp]> = [
-      ['CHANGELOG.md', new RegExp(`^## ${escaped}\\b`, 'm')],
-      ['SECURITY.md', new RegExp(`梁相当前源码版本 v${escaped}\\b`)],
+      ['CHANGELOG.md', new RegExp(`^## ${escaped}(?![0-9A-Za-z.+-])`, 'm')],
+      ['SECURITY.md', new RegExp(`梁相当前源码版本 v${escaped}(?![0-9A-Za-z.+-])`)],
       ['docs/COMPATIBILITY.md', new RegExp(`\\| 梁相版本 \\| ${escaped} \\|`)],
       ['docs/CURRENT_ARCHITECTURE.md', new RegExp(`PLUGIN_VERSION` + String.raw`[^\n]*` + escaped)],
     ]

@@ -4,8 +4,8 @@
 
 ## 版本与边界
 
-当前源码 `package.json` / `PLUGIN_VERSION` = `1.2.0-rc.8`，`SERVER_BUILD=1.2.0-rc.8-u1`。
-正式目标为 **1.2.0**；npm 已发布稳定版仍为 **1.1.6**。候选提交、CI 合并与正式发布/生产部署是独立步骤。
+当前源码 `package.json` / `PLUGIN_VERSION` = `1.2.0`，`SERVER_BUILD=1.2.0-u1`。
+当前为 **1.2.0 发布准备**；公开版本与部署状态以[发布回执](RELEASE_READINESS_1_2.md)核对，不能由源码版本推断。候选提交、CI 合并与正式发布/生产部署是独立步骤。
 
 | 仓库 | 职责 |
 |---|---|
@@ -43,7 +43,7 @@ DSH 最终请求用量
 | 拍梁子 | 单击 200ms 判定开合；双击/连拍保持面板状态。主面板固定，独立三行短句下落渐隐，见 [`PR6_FEEDBACK_REDESIGN.md`](PR6_FEEDBACK_REDESIGN.md) |
 | 日终上香 | 默认关闭，Host 运行时按业务时区 23:59 发一笔普通倾炉；右键只设置方向，手动优先，意图持久化且不跨日补投，见 [`DAY_END_INCENSE.md`](DAY_END_INCENSE.md) |
 | 连接 | Host 跟随后端 cadence；只过滤业务内容相同的 SSE 整帧，真实变化即时发送，见 [`CONNECTION_EFFICIENCY.md`](CONNECTION_EFFICIENCY.md) |
-| 更新说明 | 升级按版本显示一次，可从案牍重看；保留 QQ 二维码及社区贡献者鸣谢 |
+| 更新说明 | 升级按版本显示一次，可从案牍重看；已打开标签页同步引导完成状态，保留 QQ 二维码及社区贡献者鸣谢 |
 
 Desktop 通过原生“插件 → 添加插件”输入完整包名 `dsh-liangxiang` 安装；命令行 WebUI 独立管理 Profile。安装图解、升级和卸载见 [`INSTALL.md`](INSTALL.md)。
 在线一直连不上时先排查 DSH Host 到社区的网络；部分地区可尝试代理，见 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)。
