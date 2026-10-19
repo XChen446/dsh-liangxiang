@@ -183,7 +183,10 @@ incense.
   explicit confirmation; network failure, reconnect, refresh and backend restart
   must never invoke it. 当前版本 opens a compact version-information dialog; the sound
   control has no long-press version gesture. `核对香火` remains under the collapsed
-  `显示异常？` repair entry, outside the four main tiles; it is repair-only: it must warn that unconfirmed local
+  `显示异常？` repair entry, outside the four main tiles. Its button spans the
+  drawer content width, aligned with the outer edges of the 2×2 tiles; use a
+  compact text row with natural wrapping, never the tiles' icon-column grid.
+  It is repair-only: it must warn that unconfirmed local
   observation is discarded before rereading the server ledger
 - destructive identity reset does not belong in this lightweight drawer; it
   requires a separate flow with explicit consequences and confirmation

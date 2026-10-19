@@ -1738,7 +1738,7 @@ export function Panel(props: PanelProps): ReactElement {
                 <details style={{ marginTop: '7px', fontSize: '9px', color: color.textSecondary }}>
                   <summary style={{ cursor: 'pointer' }}>显示异常？</summary>
                   <button type="button" data-liangxiang-utility-action="reconcile" disabled={offline} onClick={onReconcileAsk}
-                    style={{ marginTop: '5px', border: `1px solid ${color.border}`, borderRadius: '6px', background: color.bgSubtle, color: color.textSecondary, padding: '4px 7px', font: `10px ${font.family}`, cursor: 'pointer' }}>
+                    style={{ display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 0, marginTop: '5px', border: `1px solid ${color.border}`, borderRadius: '6px', background: color.bgSubtle, color: color.textSecondary, padding: '4px 7px', font: `10px ${font.family}`, lineHeight: 1.5, cursor: 'pointer' }}>
                     {UTILITY_RECONCILE_LABEL} · {UTILITY_RECONCILE_HINT}
                   </button>
                 </details>

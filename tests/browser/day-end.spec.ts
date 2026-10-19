@@ -3,7 +3,14 @@ import { expect, test } from '@playwright/test'
 import { DAY_END_ACTION_HEADER, DAY_END_ACTION_VALUE } from '../../src/shared/day-end.ts'
 import { bootInstalledLiangxiang, openPanel } from './helpers.ts'
 
-test('day-end is explicit, right-click only sets direction, and tabs share the Host preference', async ({ page }) => {
+test.afterEach(async ({ page }) => {
+  const response = await page.request.post('/liangxiang/api/day-end', {
+    headers: { [DAY_END_ACTION_HEADER]: DAY_END_ACTION_VALUE }, data: { enabled: false, voteType: 'up' },
+  })
+  expect(response.ok()).toBe(true)
+})
+
+test('day-end is explicit, right-click only sets direction, and tabs share the Host preference', async ({ page }, testInfo) => {
   await bootInstalledLiangxiang(page)
   const configure = async (enabled: boolean) => {
     const response = await page.request.post('/liangxiang/api/day-end', {
@@ -61,6 +68,35 @@ test('day-end is explicit, right-click only sets direction, and tabs share the H
   await expect(repair).toBeHidden()
   await panel.getByText('显示异常？', { exact: true }).click()
   await expect(repair).toBeVisible()
+  const repairLayout = await repair.evaluate(element => {
+    const drawer = element.closest('[data-liangxiang-utility-drawer]')!
+    const first = drawer.querySelector('[data-liangxiang-utility-action="home"]')!.getBoundingClientRect()
+    const last = drawer.querySelector('[data-liangxiang-utility-action="version"]')!.getBoundingClientRect()
+    const box = element.getBoundingClientRect()
+    const text = document.createRange()
+    text.selectNodeContents(element)
+    // React emits label, separator and hint as separate text nodes. Count
+    // visual rows rather than mistaking each fragment for a wrapped line.
+    const rows: Array<{ top: number, bottom: number }> = []
+    for (const rect of Array.from(text.getClientRects()).sort((a, b) => a.top - b.top)) {
+      if (rect.width === 0 || rect.height === 0) continue
+      const previous = rows.at(-1)
+      if (previous === undefined || rect.top >= previous.bottom - 1) rows.push({ top: rect.top, bottom: rect.bottom })
+      else previous.bottom = Math.max(previous.bottom, rect.bottom)
+    }
+    return { leftGap: Math.abs(box.left - first.left), rightGap: Math.abs(box.right - last.right),
+      height: box.height, lines: rows.length, overflow: element.scrollWidth > element.clientWidth }
+  })
+  expect(repairLayout.leftGap).toBeLessThan(1)
+  expect(repairLayout.rightGap).toBeLessThan(1)
+  expect(repairLayout.lines).toBeLessThanOrEqual(2)
+  expect(repairLayout.height).toBeLessThanOrEqual(44)
+  expect(repairLayout.overflow).toBe(false)
+  await panel.locator('[data-liangxiang-utility-drawer]').screenshot({ path: testInfo.outputPath('repair-expanded.png') })
+  await repair.click()
+  await expect(panel.locator('[data-liangxiang-reconcile-confirm]')).toBeVisible()
+  await panel.locator('[data-liangxiang-reconcile-cancel]').click()
+  await expect(panel.locator('[data-liangxiang-reconcile-confirm]')).toBeHidden()
   const accessibility = await new AxeBuilder({ page }).include('[data-liangxiang-utility-drawer]')
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
   expect(accessibility.violations).toEqual([])
@@ -76,7 +112,7 @@ test('day-end is explicit, right-click only sets direction, and tabs share the H
     await expect(second.locator('[data-liangxiang-day-end-hint]')).toContainText('当前：拉')
     await secondToggle.click()
     await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  } finally { await other.close(); await configure(false) }
+  } finally { await other.close() }
   const after = await page.request.get('/liangxiang/api/state').then(r => r.json())
   expect(after.personal.usedIncenseToday).toBe(before.personal.usedIncenseToday)
   expect(after.personal.remainingIncense).toBe(before.personal.remainingIncense)
