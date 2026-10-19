@@ -36,7 +36,7 @@ afterEach(async () => {
 interface PreparedVote { body: string, headers: Record<string, string> }
 interface Reply { status: number, body: unknown, latencyMs: number }
 
-async function harness(now = WINDOW_START, maxSockets = 1_000) {
+async function harness(now = WINDOW_START, maxSockets = 128) {
   const directory = mkdtempSync(join(tmpdir(), 'liangxiang-day-end-burst-'))
   const path = join(directory, 'community.sqlite')
   const config = resolveBackendConfig({ LIANGXIANG_BACKEND_DB: path,
@@ -51,6 +51,9 @@ async function harness(now = WINDOW_START, maxSockets = 1_000) {
     voteRateLimitPerMinute: 50, log: message => {
       if (/unhandled|SQLITE_BUSY|database is locked|internal error/i.test(message)) failures.push(message)
     } })
+  // Keep test connections alive through assertions and replay. Slow runners
+  // must not turn an unrelated idle-socket expiry into a vote failure.
+  api.server.keepAliveTimeout = 60_000
   let acceptedConnections = 0
   api.server.on('connection', () => { acceptedConnections += 1 })
   await new Promise<void>(resolve => api.server.listen(0, '127.0.0.1', resolve))
@@ -58,9 +61,11 @@ async function harness(now = WINDOW_START, maxSockets = 1_000) {
   if (address === null || typeof address === 'string') throw new Error('Burst test did not bind')
   const baseUrl = `http://127.0.0.1:${address.port}`
   const agent = new Agent({ keepAlive: true, maxSockets, maxTotalSockets: maxSockets, maxFreeSockets: maxSockets })
+  const clientAgents = new Map<string, Agent>()
   const reader = new DatabaseSync(path, { readOnly: true })
   closeAll.push(async () => {
     agent.destroy()
+    for (const client of clientAgents.values()) client.destroy()
     api.server.closeAllConnections()
     await new Promise<void>(resolve => api.server.close(() => resolve()))
     reader.close()
@@ -96,7 +101,8 @@ async function harness(now = WINDOW_START, maxSockets = 1_000) {
 
   const send = (prepared: PreparedVote): Promise<Reply> => new Promise((resolve, reject) => {
     const started = performance.now()
-    const req = request(`${baseUrl}/v1/votes`, { method: 'POST', headers: prepared.headers, agent }, res => {
+    const client = clientAgents.get(prepared.headers[INSTALLATION_HEADER] ?? '') ?? agent
+    const req = request(`${baseUrl}/v1/votes`, { method: 'POST', headers: prepared.headers, agent: client }, res => {
       let body = ''
       res.setEncoding('utf8')
       res.on('data', (chunk: string) => { body += chunk })
@@ -111,6 +117,28 @@ async function harness(now = WINDOW_START, maxSockets = 1_000) {
     req.end(prepared.body)
   })
 
+  const warmClients = async (identities: CommunityKeypair[]) => {
+    // One independent connection per client, established before the vote
+    // barrier in small batches. Test simultaneous votes rather than the OS's
+    // cold TCP listen backlog, whose limit differs on Windows and macOS.
+    for (let start = 0; start < identities.length; start += 64) {
+      await Promise.all(identities.slice(start, start + 64).map(identity => {
+        const client = new Agent({ keepAlive: true, maxSockets: 1, maxFreeSockets: 1 })
+        clientAgents.set(identity.installationId, client)
+        return new Promise<void>((resolve, reject) => {
+          const req = request(`${baseUrl}/v1/health`, { agent: client }, res => {
+            res.resume()
+            res.on('error', reject)
+            res.on('end', () => res.statusCode === 200 ? resolve() : reject(new Error('Warm-up health failed')))
+          })
+          req.on('error', reject)
+          req.setTimeout(30_000, () => req.destroy(new Error('Warm-up HTTP timeout')))
+          req.end()
+        })
+      }))
+    }
+  }
+
   const audit = () => {
     expect(reader.prepare('PRAGMA journal_mode').get()).toMatchObject({ journal_mode: 'wal' })
     expect(reader.prepare('PRAGMA quick_check').get()).toMatchObject({ quick_check: 'ok' })
@@ -123,7 +151,7 @@ async function harness(now = WINDOW_START, maxSockets = 1_000) {
       overspent: Number(reader.prepare('SELECT COUNT(*) AS n FROM daily_incense_state WHERE used_incense < 0 OR used_incense * token_per_incense > claimed_effective_tokens').get()?.n),
     }
   }
-  return { service, store, clock, api, baseUrl, activeCase, enroll, prepare, send, audit,
+  return { service, store, clock, api, baseUrl, activeCase, enroll, prepare, send, warmClients, audit,
     get connections() { return acceptedConnections } }
 }
 
@@ -143,6 +171,8 @@ describe('signed day-end bursts on a file-backed authority', () => {
   it('accepts 1000 independent clients at one business second and replays without another spend', async () => {
     const h = await harness()
     const identities = h.enroll(1_000, 20)
+    await h.warmClients(identities)
+    expect(h.connections).toBe(1_000)
     const prepared = identities.map((identity, index) => h.prepare(identity, {
       case_id: h.activeCase.id, vote_type: index % 2 === 0 ? 'up' : 'down',
       request_id: `day-end-burst-${index}`, count: 20,
