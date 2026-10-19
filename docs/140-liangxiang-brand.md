@@ -140,3 +140,6 @@ CSS data attribute、日志前缀和 `liangxiang-backend` 服务名。代码、�
 | `package.json` `description` | 官网导语那一句产品短描述 | 安装命令、渠道专用提示 |
 
 发布 npm 时用 `docs/npm-readme.md` 覆盖包内的 `README.md`；GitHub 仓库始终保留产品向的 `README.md`。`prepack` / `postpack` 负责交换，不要手改后再发。
+
+对外说明只保留最终功能、操作步骤和必要限制，删去讨论经过、验证经过及推测性解释。连接提示直接给出 DSH 代理设置步骤；安装与升级分别说明，不承诺当前官方入口尚不支持的一键更新。
+页面提到图示时必须能直接看到图片，或明确标为外部安装指南。npm README 的图片使用公开 HTTPS 绝对地址，发布前核对渲染和图片链接。

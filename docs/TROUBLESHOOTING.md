@@ -2,11 +2,8 @@
 
 ## 在线模式一直连不上
 
-可能是运行 DSH 的机器无法访问社区服务器。包括福建在内的部分地区有连接不稳定反馈；
-具体取决于网络、运营商和代理配置，不代表所有用户都会遇到。
-
-1. 确认 DSH 所在机器的网络可用，必要时让 **DSH 进程**使用代理；浏览器代理不一定覆盖 Host。
-2. 参考 [`INSTALL.md`](INSTALL.md#在线连接与代理)，使用 TUN 或 DSH 主目录 `.env` 的 HTTP 代理配置，完全重启 DSH。
+1. 检查网络连接。
+2. 仍无法连接时，按[代理设置](INSTALL.md#在线连接与代理)启用 TUN，或在 DSH 主目录 `.env` 配置 HTTP 代理，保存后完全退出并重启 DSH。
 3. 连接恢复后插件会自动重连；不需要反复切模式、重装或清空账本。
 
 “今日梁案（本地）”表示显式选择了离线玩法；“无法连接天庭”表示在线服务暂不可用。
@@ -33,7 +30,7 @@ Desktop 的 `desktop` Profile 独占；普通 CLI 的 `web` 安装不会进入�
 
 ## 升级后仍是旧版本
 
-在 **梁相案牍 → 当前版本** 核对。Desktop 从已安装插件更新；没有更新按钮时卸载插件后重新安装，保留数据目录。
+在 **梁相案牍 → 当前版本** 核对。Desktop 用户在 **插件 → 已安装** 卸载梁相，再重新安装新版；保留 DSH 数据目录。
 Cmd / Web 退出后执行：
 
 ```bash
@@ -72,7 +69,7 @@ DSH Host 必须运行；浏览器可以关闭。在线采用服务端业务时�
 相对 tarball 路径加 `./`，否则可能被当成 npm 包名：
 
 ```bash
-npx --yes @deepseek-ai/dsh plugin --profile web add ./dsh-liangxiang-1.1.6.tgz
+npx --yes @deepseek-ai/dsh plugin --profile web add ./dsh-liangxiang-1.2.0.tgz
 ```
 
 无需全局命令，`npx --yes @deepseek-ai/dsh` 可代替 `dsh`。Desktop 用户使用应用内安装。
