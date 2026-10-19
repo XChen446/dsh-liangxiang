@@ -20,7 +20,7 @@ import { readLocalEpithet, rememberLocalEpithetVote } from './local-epithet-stor
 import { readLocalIncenseStats, rememberLocalIncenseVote } from './local-incense-store.ts'
 import { cycleSoundLevel, playArchiveSeal, playIncenseEarn, playLiangziShift, playNoIncense, playSquish, playVolumePreview, playVoteDown, playVoteDump, playVoteUp, soundLevel as readSoundLevel } from './sound.ts'
 import { DUMP_AUTO_RELEASE_MS, chargeProgress, holdReleaseAction } from './vote-charge.ts'
-import { hasSeenWelcome, markWelcomeSeen } from './welcome.ts'
+import { hasSeenWelcome, markWelcomeSeen, WELCOME_STORAGE_KEY } from './welcome.ts'
 import { pickSquishLabel, SQUISH_ANIM_MS, SQUISH_DOUBLE_MS, SQUISH_COMMENT_GAP_MS, SQUISH_LABEL_LINGER_MS, SQUISH_MAX_ROWS } from './badge-squish.ts'
 import { BadgeFeedback } from './BadgeFeedback.tsx'
 import type { BadgeComment } from './badge-feedback.ts'
@@ -45,7 +45,7 @@ import { Panel } from './Panel.tsx'
 import { color } from './theme.ts'
 import { useThrottleFill } from './use-throttle-fill.ts'
 import { useTweenedCount } from './use-tweened-count.ts'
-import { hasSeenReleaseNotes, markReleaseNotesSeen } from './release-notes.ts'
+import { hasSeenReleaseNotes, markReleaseNotesSeen, releaseNotesStorageKey } from './release-notes.ts'
 import { loadDismissedBroadcastId, markBroadcastDismissed } from './broadcast-dismissal.ts'
 
 /** Preserve the exact earned-incense jump carried by one authoritative frame. */
@@ -259,6 +259,17 @@ export function LiangxiangBadge(): ReactElement {
   })
   const [welcomeVisible, setWelcomeVisible] = useState(() => !hasSeenWelcome())
   const [releaseNotesVisible, setReleaseNotesVisible] = useState(() => !hasSeenReleaseNotes())
+  useEffect(() => {
+    // Another tab completing guidance must not leave this one blocked or ask
+    // for a second authority choice. Clearing storage never chooses a mode.
+    const onStorage = (event: StorageEvent): void => {
+      if (event.storageArea !== localStorage || event.newValue !== 'seen') return
+      if (event.key === WELCOME_STORAGE_KEY) setWelcomeVisible(false)
+      if (event.key === releaseNotesStorageKey()) setReleaseNotesVisible(false)
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
   const [dismissedBroadcastId, setDismissedBroadcastId] = useState(() => loadDismissedBroadcastId())
   // Reopening the panel while offline reconnects; while live it forces a
   // host re-bootstrap so the expanded 今日梁案 is not up to ~1s stale.
