@@ -1321,7 +1321,7 @@ export function Panel(props: PanelProps): ReactElement {
           data-liangxiang-vote="up"
           disabled={authorityUnavailable}
           aria-disabled={votingDisabled}
-          title={votingDisabled ? disabledReason : `${VOTE_UP_NAME}一炷香，长按倾炉；右键设日终默认夯`}
+          title={votingDisabled ? disabledReason : `${VOTE_UP_NAME}一炷香，长按倾炉；右键设定时默认夯`}
           data-charging={chargeVoteType === 'up' ? '' : undefined}
           data-armed={chargeVoteType === 'up' && charge >= DUMP_ARMED_CHARGE ? '' : undefined}
           onContextMenu={(event) => { event.preventDefault(); onVotePointerCancel(); onDayEndDirection('up') }}
@@ -1369,7 +1369,7 @@ export function Panel(props: PanelProps): ReactElement {
           data-liangxiang-vote="down"
           disabled={authorityUnavailable}
           aria-disabled={votingDisabled}
-          title={votingDisabled ? disabledReason : `${VOTE_DOWN_NAME}一炷香，长按倾炉；右键设日终默认拉`}
+          title={votingDisabled ? disabledReason : `${VOTE_DOWN_NAME}一炷香，长按倾炉；右键设定时默认拉`}
           data-charging={chargeVoteType === 'down' ? '' : undefined}
           data-armed={chargeVoteType === 'down' && charge >= DUMP_ARMED_CHARGE ? '' : undefined}
           onContextMenu={(event) => { event.preventDefault(); onVotePointerCancel(); onDayEndDirection('down') }}
@@ -1696,22 +1696,22 @@ export function Panel(props: PanelProps): ReactElement {
                       data-liangxiang-utility-action="day-end"
                       aria-pressed={state.dayEnd?.enabled ?? false}
                       aria-busy={dayEndPending}
-                      aria-label={`日终上香：${state.dayEnd?.enabled ? '已开启' : '已关闭'}，23:59 默认${state.dayEnd?.voteType === 'down' ? '拉' : '夯'}`}
+                      aria-label={`定时上香：${state.dayEnd?.enabled ? '已开启' : '已关闭'}，每 10 分钟满额上香，23:59 收尾，默认${state.dayEnd?.voteType === 'down' ? '拉' : '夯'}`}
                       aria-describedby="liangxiang-day-end-hint"
                       disabled={dayEndPending || !state.dayEnd?.available}
                       onClick={onDayEndToggle}
                       style={{ width: '100%', height: '100%' }}
                     >
                       <HeavenHearIcon size={19} />
-                      <strong style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>日终上香</strong>
+                      <strong style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>定时上香</strong>
                       <span data-liangxiang-day-end-state="" style={{ fontSize: '10px', color: color.textSecondary, whiteSpace: 'nowrap' }}>
                         {dayEndPending ? '保存中…' : !state.dayEnd?.available ? '暂不可用' : state.dayEnd.enabled ? '已开启' : '已关闭'}
                       </span>
                     </button>
                     <span id="liangxiang-day-end-hint" data-liangxiang-day-end-hint="" role="tooltip">
                       {state.dayEnd?.available
-                        ? `23:59 按限额尽量上香，DSH 运行时生效。右键夯 / 拉设置默认方向（当前：${state.dayEnd.voteType === 'down' ? '拉' : '夯'}）。`
-                        : '日终设置暂不可用，请确认 DSH 已连接并加载新版插件。'}
+                        ? `余额满 500 炷后每 10 分钟按限额上香，23:59 再收尾一次。DSH 运行时生效；旧版开关需重新开启。右键夯 / 拉设置默认方向（当前：${state.dayEnd.voteType === 'down' ? '拉' : '夯'}）。`
+                        : '定时设置暂不可用，请确认 DSH 已连接并加载新版插件。'}
                     </span>
                   </div>
                   <button

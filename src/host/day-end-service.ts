@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { VOTE_COUNT_MAX, VOTE_REFILL_PER_MINUTE } from '../domain/index.ts'
 import type { Clock } from '../shared/business-date.ts'
-import { DEFAULT_DAY_END, parseDayEndPreferences, type DayEndPersistence, type DayEndPreferences, type DayEndState, type DayEndJob } from '../shared/day-end.ts'
+import { DEFAULT_DAY_END, parseDayEndPreferences, parseDayEndState, type DayEndPersistence, type DayEndPreferences, type DayEndState, type DayEndJob } from '../shared/day-end.ts'
 import type { LiangxiangWireState, WireVoteRequest } from '../shared/wire.ts'
 import { AuthoritySlot } from './authority-slot.ts'
 import type { LiangHostService, VoteOutcome } from './service.ts'
@@ -11,37 +11,10 @@ const STOP_BEFORE_END_MS = 5_000
 const MANUAL_IDLE_MS = 2_000
 const GESTURE_LEASE_MS = 5_000
 const RETRY_MS = 5_000
+export const AUTO_DUMP_PERIOD_MS = VOTE_COUNT_MAX / VOTE_REFILL_PER_MINUTE * 60_000
+interface ScheduleContext { authority: LiangHostService, businessDate: string, caseId: string, generation: number }
 
-/**
- * Time for the shared bucket to refill one full request after any spend.
- *
- * The bucket itself is not on the wire, so the interval is measured from the
- * last shot instead of read from the authority: every spend takes at least the
- * whole bucket the authority was willing to give, and one refill period later
- * it can serve a full request again. A node configured to refill faster only
- * makes this interval conservative; a slower one still cannot overrun the
- * bucket, because the authority clamps every request to what it has.
- */
-export const AUTO_DUMP_PERIOD_MS = (VOTE_COUNT_MAX / VOTE_REFILL_PER_MINUTE) * 60_000
-
-/**
- * Opt-in automatic incense, on one `enabled` preference and one manual queue.
- *
- * Two independent schedules drain the same balance without a per-stick queue:
- *
- * - The day-end window (`START_BEFORE_END_MS` .. `STOP_BEFORE_END_MS` before the
- *   business midnight) sends one persisted dump per business day. That intent is
- *   durable, so a restart replays the identical request id, and it covers any
- *   tail too small for the loop below.
- * - The intraday loop sends one ordinary dump per bucket refill period while the
- *   balance can still fill a whole request. Without it a large balance is
- *   clipped to a single `VOTE_COUNT_MAX` shot at the end of the day.
- *
- * Neither path enqueues one item per stick: the authority's own `remaining` is
- * the queue, and it is the only thing either schedule reads. The loop therefore
- * keeps no durable job — its guard is a balance, so it naturally empties at a
- * business rollover and cannot replay yesterday into today.
- */
+/** Timed ordinary dumps and one closing dump share one durable intent per mode. */
 export class DayEndService extends AuthoritySlot {
   private state: DayEndState = structuredClone(DEFAULT_DAY_END)
   private persistence: DayEndPersistence | null = null
@@ -53,23 +26,32 @@ export class DayEndService extends AuthoritySlot {
   private gestureUntil = 0
   private retryAt = 0
   private timer: ReturnType<typeof setTimeout> | null = null
-  private loopTimer: ReturnType<typeof setTimeout> | null = null
-  private loopReadyAt = 0
-  private loopRunning = false
   private unsubscribe: (() => void) | null = null
   private stopped = false
   private running = false
   private scheduling = false
+  private periodicReadyAt = 0
+  private scheduleKey = ''
+  private scheduledAuthority: LiangHostService | null = null
+  private generation = 0
 
   constructor(inner: LiangHostService, private readonly clock: Clock,
-    private readonly changingMode: () => boolean, private readonly warn: (message: string) => void,
-    private readonly autoDumpPeriodMs: number = AUTO_DUMP_PERIOD_MS) {
+    private readonly changingMode: () => boolean, private readonly warn: (message: string) => void) {
     super(inner)
+  }
+
+  override use(next: LiangHostService, disposePrevious = true): void {
+    if (next !== this.current) {
+      this.generation += 1
+      this.periodicReadyAt = 0
+    }
+    super.use(next, disposePrevious)
   }
 
   attachDayEndPersistence(port: DayEndPersistence): void {
     this.persistence = port
-    this.state = port.getDayEndState() ?? structuredClone(DEFAULT_DAY_END)
+    this.state = parseDayEndState(port.getDayEndState() ?? DEFAULT_DAY_END)
+    this.generation += 1
     this.settingsRevision += 1
     this.emit()
   }
@@ -82,7 +64,7 @@ export class DayEndService extends AuthoritySlot {
 
   async setDayEndPreferences(raw: DayEndPreferences): Promise<void> {
     const preferences = parseDayEndPreferences(raw)
-    await this.save(s => ({ ...s, ...preferences }))
+    await this.save(s => ({ ...s, ...preferences, cadenceVersion: 1 }))
   }
 
   /** Cover the 1.5s hold before it becomes a vote request. Cancellation expires. */
@@ -93,9 +75,13 @@ export class DayEndService extends AuthoritySlot {
 
   private save(change: (state: DayEndState) => DayEndState): Promise<void> {
     const run = this.mutations.then(async () => {
-      if (this.persistence === null || this.stopped) throw new Error('日终设置尚未加载，请稍后重试')
+      if (this.persistence === null || this.stopped) throw new Error('定时设置尚未加载，请稍后重试')
       const next = change(this.state)
       await this.persistence.setDayEndState(next)
+      if (this.state.enabled !== next.enabled) {
+        this.generation += 1
+        this.periodicReadyAt = 0
+      }
       this.state = next
       this.settingsRevision += 1
       this.emit()
@@ -138,13 +124,10 @@ export class DayEndService extends AuthoritySlot {
   private schedule(): void {
     if (this.scheduling) return
     this.scheduling = true
-    try {
-      this.updateDayEndSchedule()
-      this.updateAutoDumpSchedule()
-    } finally { this.scheduling = false }
+    try { this.updateSchedule() } finally { this.scheduling = false }
   }
 
-  private updateDayEndSchedule(): void {
+  private updateSchedule(): void {
     if (this.timer !== null) clearTimeout(this.timer)
     this.timer = null
     if (this.stopped || this.running || !this.state.enabled || this.persistence === null || !this.isReady) return
@@ -152,126 +135,97 @@ export class DayEndService extends AuthoritySlot {
     if (timing == null) return
     const wire = this.getWireState()
     const mode = wire.authorityMode === 'LOCAL_FAKE_DEV' ? 'local' : 'online'
-    const done = this.state.jobs[mode]?.businessDate === timing.businessDate && this.state.jobs[mode]?.done
+    const key = `${mode}:${timing.businessDate}:${wire.activeCase.id}`
+    if (this.scheduleKey !== key || this.scheduledAuthority !== this.current) {
+      this.scheduleKey = key
+      this.scheduledAuthority = this.current
+      this.periodicReadyAt = 0
+      this.retryAt = 0
+    }
+    const job = this.state.jobs[mode]?.businessDate === timing.businessDate ? this.state.jobs[mode] : undefined
+    const closing = timing.now >= timing.endsAt - START_BEFORE_END_MS
+    const done = job?.done && job.kind !== 'periodic'
     let delay = Math.max(0, timing.endsAt - START_BEFORE_END_MS - timing.now)
-    if (done || timing.now >= timing.endsAt - STOP_BEFORE_END_MS) delay = Math.max(RETRY_MS, timing.endsAt - timing.now + 1_000)
+    if (!closing && (job === undefined || job.kind === 'periodic')) {
+      if (job?.kind === 'periodic' && !job.done) delay = 0
+      else if (wire.personal.remainingIncense >= VOTE_COUNT_MAX) {
+        if (this.periodicReadyAt === 0) this.periodicReadyAt = this.clock.now() + AUTO_DUMP_PERIOD_MS
+        delay = Math.min(delay, Math.max(0, this.periodicReadyAt - this.clock.now()))
+      } else this.periodicReadyAt = 0
+    }
+    if ((closing && done) || timing.now >= timing.endsAt - STOP_BEFORE_END_MS) delay = Math.max(RETRY_MS, timing.endsAt - timing.now + 1_000)
     else if (!wire.authorityAvailable || this.changingMode() || this.manualPending > 0) delay = Math.max(delay, RETRY_MS)
     delay = Math.max(delay, this.retryAt - this.clock.now(), this.gestureUntil - this.clock.now(), this.lastManualAt + MANUAL_IDLE_MS - this.clock.now())
-    this.timer = setTimeout(() => { this.timer = null; void this.runDayEnd() }, delay)
+    const context: ScheduleContext = { authority: this.current, businessDate: timing.businessDate,
+      caseId: wire.activeCase.id, generation: this.generation }
+    this.timer = setTimeout(() => { this.timer = null; void this.runDayEnd(context) }, Math.max(1, delay))
   }
 
-  private updateAutoDumpSchedule(): void {
-    if (this.loopTimer !== null) clearTimeout(this.loopTimer)
-    this.loopTimer = null
-    if (this.stopped || this.loopRunning || !this.state.enabled || this.persistence === null || !this.isReady) return
-    const wire = this.getWireState()
-    if (!wire.authorityAvailable || this.changingMode()) return
-    if (wire.personal.remainingIncense < VOTE_COUNT_MAX) {
-      // Below one full request the loop has nothing worthwhile to send; the
-      // day-end shot is the only schedule that runs outside that guard, so it
-      // is what covers a small tail. Disarm rather than poll.
-      this.loopReadyAt = 0
-      return
-    }
-    // First time the guard holds, start measuring the refill period. Every
-    // later round is re-armed from the shot itself in `runAutoDump`.
-    if (this.loopReadyAt === 0) this.loopReadyAt = this.clock.now() + this.autoDumpPeriodMs
-    const idleUntil = Math.max(this.gestureUntil, this.lastManualAt + MANUAL_IDLE_MS)
-    let delay = Math.max(0, this.loopReadyAt - this.clock.now(), idleUntil - this.clock.now())
-    if (this.manualPending > 0) delay = Math.max(delay, RETRY_MS)
-    this.loopTimer = setTimeout(() => { this.loopTimer = null; void this.runAutoDump() }, delay)
-  }
-
-  private inWindow(authority: LiangHostService): boolean {
+  private inWindow(context: ScheduleContext): boolean {
+    const { authority } = context
     const timing = authority.dayEndTiming?.()
+    const wire = authority.getWireState()
     return !this.stopped && this.state.enabled && this.current === authority && !this.changingMode()
-      && timing != null && timing.now >= timing.endsAt - START_BEFORE_END_MS
+      && this.generation === context.generation && wire.businessDate === context.businessDate
+      && wire.activeCase.id === context.caseId && timing?.businessDate === context.businessDate
       && timing.now < timing.endsAt - STOP_BEFORE_END_MS
   }
 
-  private canPrepareVote(authority: LiangHostService): boolean {
+  private canPrepareVote(context: ScheduleContext): boolean {
     return this.manualPending === 0
       && this.clock.now() >= Math.max(this.gestureUntil, this.lastManualAt + MANUAL_IDLE_MS)
-      && this.inWindow(authority)
+      && this.inWindow(context)
   }
 
-  /** Same manual precedence as the day-end shot, but no day boundary at all. */
-  private canPrepareAutoDump(authority: LiangHostService): boolean {
-    return !this.stopped && this.state.enabled && this.current === authority && !this.changingMode()
-      && this.manualPending === 0
-      && this.clock.now() >= Math.max(this.gestureUntil, this.lastManualAt + MANUAL_IDLE_MS)
-  }
-
-  private async runDayEnd(): Promise<void> {
-    if (this.running || !this.inWindow(this.current)) { this.schedule(); return }
+  private async runDayEnd(context: ScheduleContext): Promise<void> {
+    if (this.running || !this.inWindow(context)) { this.schedule(); return }
     this.running = true
-    const authority = this.current
+    const { authority } = context
     try {
       await this.enqueue(authority, async () => {
-        if (!this.canPrepareVote(authority)) return
+        if (!this.canPrepareVote(context)) return
         await authority.refreshNow?.()
-        if (!this.canPrepareVote(authority)) return
+        if (!this.canPrepareVote(context)) return
         const wire = authority.getWireState()
         if (!wire.authorityAvailable) return
         const mode = wire.authorityMode === 'LOCAL_FAKE_DEV' ? 'local' : 'online'
         let job = this.state.jobs[mode]
-        if (job?.businessDate !== wire.businessDate) {
+        const timing = authority.dayEndTiming?.()
+        if (timing == null) return
+        const closing = timing.now >= timing.endsAt - START_BEFORE_END_MS
+        const today = job?.businessDate === wire.businessDate
+        if (today && job?.done && job.kind !== 'periodic') return
+        const pending = today && job && !job.done
+        if (!pending) {
+          if (!closing && (this.periodicReadyAt === 0 || this.clock.now() < this.periodicReadyAt || wire.personal.remainingIncense < VOTE_COUNT_MAX)) {
+            this.periodicReadyAt = 0
+            return
+          }
           const count = Math.min(VOTE_COUNT_MAX, wire.personal.remainingIncense)
           if (count < 1) { this.retryAt = this.clock.now() + RETRY_MS; return }
           job = { businessDate: wire.businessDate, caseId: wire.activeCase.id,
-            requestId: randomUUID(), voteType: this.state.voteType, count, done: false }
+            requestId: randomUUID(), voteType: this.state.voteType, count, done: false, kind: closing ? 'closing' : 'periodic' }
           const prepared = job
           // Persist the exact intent BEFORE sending. Restart/uncertain retry
           // reuses its ID, direction, case and count, even if preferences change.
           await this.save(s => ({ ...s, jobs: { ...s.jobs, [mode]: prepared } }))
         }
-        if (job.done || !this.canPrepareVote(authority)) return
+        if (job === undefined || job.done || !this.canPrepareVote(context)) return
+        // A legacy closing receipt is never replayed during the daytime.
+        if (job.kind !== 'periodic' && !closing) return
         const outcome = await authority.vote({ caseId: job.caseId, voteType: job.voteType, requestId: job.requestId, count: job.count })
         if (outcome.result.status === 'accepted' || outcome.result.status === 'rejected') {
           const completed: DayEndJob = { ...job, done: true }
           await this.save(s => ({ ...s, jobs: { ...s.jobs, [mode]: completed } }))
+          if (job.kind === 'periodic') this.periodicReadyAt = this.clock.now() + AUTO_DUMP_PERIOD_MS
         }
       })
     } catch {
       // No private request/identity/transport details in diagnostics.
-      this.warn('[dsh-liangxiang] day-end incense paused; the same intent may retry before day close')
+      this.warn('[dsh-liangxiang] timed incense paused; the same intent may retry before day close')
       this.retryAt = this.clock.now() + RETRY_MS
     } finally {
       this.running = false
-      this.schedule()
-    }
-  }
-
-  /**
-   * One intraday dump. No durable intent: the next round re-reads the
-   * authoritative balance, so a lost response costs at most one extra shot and
-   * can never replay yesterday or double-count one intent.
-   */
-  private async runAutoDump(): Promise<void> {
-    if (this.stopped || !this.state.enabled) { this.schedule(); return }
-    this.loopRunning = true
-    const authority = this.current
-    let attempted = false
-    try {
-      await this.enqueue(authority, async () => {
-        if (!this.canPrepareAutoDump(authority)) return
-        await authority.refreshNow?.()
-        if (!this.canPrepareAutoDump(authority)) return
-        const wire = authority.getWireState()
-        if (!wire.authorityAvailable) return
-        const count = Math.min(VOTE_COUNT_MAX, wire.personal.remainingIncense)
-        if (count < 1) return
-        attempted = true
-        await authority.vote({ caseId: wire.activeCase.id, voteType: this.state.voteType, requestId: randomUUID(), count })
-      })
-    } catch {
-      this.warn('[dsh-liangxiang] intraday incense paused; the next attempt waits one refill period')
-    } finally {
-      // Reset on the attempt, not on its outcome. Accepted, partially accepted
-      // and rate-limited shots all leave the bucket empty, so the next full
-      // request is one refill period away either way — no 429 special case.
-      if (attempted) this.loopReadyAt = this.clock.now() + this.autoDumpPeriodMs
-      this.loopRunning = false
       this.schedule()
     }
   }
@@ -282,8 +236,6 @@ export class DayEndService extends AuthoritySlot {
     this.unsubscribe = null
     if (this.timer !== null) clearTimeout(this.timer)
     this.timer = null
-    if (this.loopTimer !== null) clearTimeout(this.loopTimer)
-    this.loopTimer = null
   }
 
   override dispose(): void { this.stopDayEnd(); super.dispose() }

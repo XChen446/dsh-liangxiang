@@ -9,7 +9,6 @@ import { readLiangxiangEnv } from '../shared/env.ts'
 import type { HostAuthorityPreference } from '../shared/wire.ts'
 import { normalizeBaseUrl } from './backend-client.ts'
 import { STAGING_BACKEND_URL } from './community-endpoint.ts'
-import { AUTO_DUMP_PERIOD_MS } from './day-end-service.ts'
 import type { LiangServiceConfig } from './fake-service.ts'
 
 /**
@@ -19,15 +18,6 @@ import type { LiangServiceConfig } from './fake-service.ts'
 export const DEFAULT_SNAPSHOT_REFRESH_SECONDS = 1
 const MIN_SNAPSHOT_REFRESH_SECONDS = 1
 const MAX_SNAPSHOT_REFRESH_SECONDS = 3600
-
-/**
- * Intraday automatic dump cadence in seconds. The default is exactly one bucket
- * refill period, so the loop never asks for more budget than the authority was
- * going to allow anyway; lower it only to observe the cadence while debugging.
- */
-export const DEFAULT_AUTO_DUMP_SECONDS = AUTO_DUMP_PERIOD_MS / 1000
-const MIN_AUTO_DUMP_SECONDS = 1
-const MAX_AUTO_DUMP_SECONDS = 3600
 
 /** Host-side resolution of which authority the plugin should serve. */
 export interface HostRuntimeConfig {
@@ -39,8 +29,6 @@ export interface HostRuntimeConfig {
   backendUrl: string
   /** Boot default used only until the Host-owned persisted preference exists. */
   defaultAuthorityPreference: HostAuthorityPreference
-  /** Bounded intraday automatic dump cadence in ms (see DEFAULT_AUTO_DUMP_SECONDS). */
-  autoDumpPeriodMs: number
 }
 
 function parsePositiveInt(
@@ -56,26 +44,6 @@ function parsePositiveInt(
     return fallback
   }
   return value
-}
-
-/**
- * Bounded intraday dump cadence. A malformed value falls back loudly; an
- * out-of-range one is clamped, exactly like the snapshot cadence above.
- * @param env - environment map (injectable for tests).
- * @param warn - loud sink for ignored invalid values.
- * @returns the cadence in milliseconds.
- */
-export function resolveAutoDumpPeriodMs(
-  env: Record<string, string | undefined>,
-  warn: (message: string) => void,
-): number {
-  const seconds = parsePositiveInt(
-    readLiangxiangEnv(env, 'AUTO_DUMP_SECONDS'),
-    DEFAULT_AUTO_DUMP_SECONDS,
-    'LIANGXIANG_AUTO_DUMP_SECONDS',
-    warn,
-  )
-  return Math.min(Math.max(seconds, MIN_AUTO_DUMP_SECONDS), MAX_AUTO_DUMP_SECONDS) * 1000
 }
 
 /**
@@ -125,31 +93,24 @@ export function resolveHostConfig(
  * changes mode; it falls back loudly to the canonical online endpoint.
  * @param env - environment map (injectable for tests).
  * @param warn - loud sink for ignored invalid values.
- * @returns the service config, always-resolved backend URL, boot default and cadence.
+ * @returns the service config, always-resolved backend URL, and boot default.
  */
 export function resolveHostRuntimeConfig(
   env: Record<string, string | undefined>,
   warn: (message: string) => void,
 ): HostRuntimeConfig {
   const service = resolveHostConfig(env, warn)
-  const autoDumpPeriodMs = resolveAutoDumpPeriodMs(env, warn)
   const raw = readLiangxiangEnv(env, 'BACKEND_URL')?.trim()
   if (raw === 'local') {
     return {
       service,
       backendUrl: normalizeBaseUrl(STAGING_BACKEND_URL),
       defaultAuthorityPreference: 'local',
-      autoDumpPeriodMs,
     }
   }
   const candidate = raw === undefined || raw === '' ? STAGING_BACKEND_URL : raw
   try {
-    return {
-      service,
-      backendUrl: normalizeBaseUrl(candidate),
-      defaultAuthorityPreference: 'online',
-      autoDumpPeriodMs,
-    }
+    return { service, backendUrl: normalizeBaseUrl(candidate), defaultAuthorityPreference: 'online' }
   } catch (error) {
     warn(
       `[dsh-liangxiang] ignoring invalid LIANGXIANG_BACKEND_URL=${candidate} `
@@ -159,7 +120,6 @@ export function resolveHostRuntimeConfig(
       service,
       backendUrl: normalizeBaseUrl(STAGING_BACKEND_URL),
       defaultAuthorityPreference: 'online',
-      autoDumpPeriodMs,
     }
   }
 }

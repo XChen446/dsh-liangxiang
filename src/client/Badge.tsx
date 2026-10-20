@@ -796,9 +796,9 @@ export function LiangxiangBadge(): ReactElement {
     const preferences = { enabled: voteType === undefined ? !current.enabled : current.enabled, voteType: voteType ?? current.voteType }
     store.setDayEndPreferences(preferences).then(
       () => setVoteFeedback(voteType === undefined
-        ? (preferences.enabled ? '已开启日终上香 · 23:59' : '已关闭日终上香')
-        : `日终自动倾炉：默认投${voteType === 'up' ? '夯' : '拉'}`),
-      () => setVoteFeedback('日终设置未保存，请稍后重试'),
+        ? (preferences.enabled ? '已开启定时上香' : '已关闭定时上香')
+        : `定时上香：默认投${voteType === 'up' ? '夯' : '拉'}`),
+      () => setVoteFeedback('定时设置未保存，请稍后重试'),
     ).finally(() => { dayEndSaving.current = false; setDayEndPending(false) })
   }
   const onReconcileAsk = (): void => {
