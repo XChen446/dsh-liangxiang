@@ -209,7 +209,7 @@ incense.
 - Right-click / keyboard context menu on 夯 or 拉 only saves the default direction
   and shows `定时上香：默认投夯/拉`. It never votes or enables the switch.
 - Clicking the entire timed-incense tile toggles it; show `已开启` / `已关闭`
-  and `保存中…`. Put cadence, closing time, direction and running requirements
+  and `保存中…`. Put cadence, closing time and direction
   in the existing hover/focus tooltip, never a permanent explanatory paragraph.
 - Serialize manual and automatic intents. Manual work has priority and a 2s
   quiet window; recheck after refresh and persistence. Invalidate stale timers
@@ -219,6 +219,11 @@ incense.
   the exact intent; finish it before creating a later batch or closing dump.
   Stop new attempts 5s before close and never replay yesterday into today.
 - Never weaken backend transactions, idempotency or business-date checks.
+- Count accepted automatic incense in the existing local participation and
+  epithet displays. Persist actual quantities with the completed Host receipt;
+  merge them with browser manual counts only at render time. Repeated frames,
+  tabs and reloads must not append them to browser storage. Never infer an
+  uncertain historical acceptance from a requested count or balance delta.
 
 ### Explicit online/offline separation
 

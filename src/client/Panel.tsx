@@ -92,6 +92,10 @@ import type { ThrottledProgress } from './use-throttle-fill.ts'
 import { QqGroupCard } from './QqGroupCard.tsx'
 import { ReleaseNotesDialog } from './ReleaseNotesDialog.tsx'
 
+const versionSuffixAt = PLUGIN_VERSION.search(/[-+]/)
+const versionBase = versionSuffixAt < 0 ? PLUGIN_VERSION : PLUGIN_VERSION.slice(0, versionSuffixAt)
+const versionSuffix = versionSuffixAt < 0 ? '' : PLUGIN_VERSION.slice(versionSuffixAt + 1)
+
 export interface PanelProps {
   state: LiangxiangViewState
   reducedMotion: boolean
@@ -574,6 +578,26 @@ const PANEL_CSS = `
   grid-row: 1 / 3;
   color: ${color.ritualEmber};
 }
+[data-liangxiang-version-label] {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  text-align: left;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+[data-liangxiang-version-label] strong {
+  font-size: 11px;
+}
+[data-liangxiang-version-label] > span {
+  font-size: 10px;
+  color: ${color.textSecondary};
+}
 [data-liangxiang-utility-action]:hover:not(:disabled),
 [data-liangxiang-utility-action]:focus-visible {
   border-color: ${color.brand};
@@ -588,9 +612,10 @@ const PANEL_CSS = `
   right: 0;
   bottom: calc(100% + 6px);
   z-index: 4;
-  width: 200px;
+  width: max-content;
+  max-width: min(200px, calc(100vw - 32px));
   box-sizing: border-box;
-  padding: 7px 9px;
+  padding: 8px 10px;
   border-radius: 9px;
   border: 1px solid ${color.border};
   background: ${color.bgLayer};
@@ -599,6 +624,7 @@ const PANEL_CSS = `
   font-size: 11px;
   line-height: 1.5;
   text-align: left;
+  white-space: normal;
   visibility: hidden;
   opacity: 0;
   transform: translateY(3px);
@@ -610,6 +636,24 @@ const PANEL_CSS = `
   visibility: visible;
   opacity: 1;
   transform: translateY(0);
+}
+[data-liangxiang-day-end-summary] {
+  display: block;
+}
+[data-liangxiang-day-end-direction] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid ${color.border};
+  color: ${color.textSecondary};
+  white-space: nowrap;
+}
+[data-liangxiang-day-end-direction] strong {
+  color: ${color.ritualEmberText};
+  font-weight: 600;
 }
 [data-liangxiang-ritual] [data-liangxiang-hint] {
   position: absolute;
@@ -648,6 +692,7 @@ const PANEL_CSS = `
   z-index: 3;
   min-width: 168px;
   max-width: calc(100vw - 32px);
+  box-sizing: border-box;
   padding: 6px 8px;
   border-radius: 10px;
   border: 1px solid ${color.border};
@@ -764,14 +809,10 @@ const PANEL_CSS = `
   padding: 2px 4px;
   text-align: left;
   font-weight: 500;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
-[data-liangxiang-weight-hint] caption {
-  caption-side: top;
-  text-align: left;
-  font-weight: 700;
-  padding-bottom: 4px;
+[data-liangxiang-weight-hint] td {
+  text-align: right;
 }
 @keyframes liangxiang-condense {
   0% { opacity: 0; transform: translate(-50%, 16px) scale(0.72); }
@@ -1278,7 +1319,7 @@ export function Panel(props: PanelProps): ReactElement {
           style={{ ...flankStyle, right: '0px' }}
           data-liangxiang-personal="next-incense"
           tabIndex={0}
-          aria-label={`${NEXT_INCENSE_LABEL} ${toNextExact} ${NEXT_INCENSE_UNIT}，悬停查看模型权重`}
+          aria-label={`${NEXT_INCENSE_LABEL} ${toNextExact} ${NEXT_INCENSE_UNIT}，悬停查看凝香规则`}
         >
           <span style={flankCaptionStyle}>{NEXT_INCENSE_LABEL}</span>
           <span style={flankValueStyle}>
@@ -1294,13 +1335,11 @@ export function Panel(props: PanelProps): ReactElement {
             {NEXT_INCENSE_PROGRESS_LABEL} {Math.trunc(Math.min(1, Math.max(0, displayFill)) * 100)}%
           </span>
           <div data-liangxiang-weight-hint="" role="tooltip">
-            <table>
-              <caption>{NEXT_INCENSE_WEIGHT_TITLE}</caption>
+            <table aria-label={NEXT_INCENSE_WEIGHT_TITLE}>
               <tbody>
                 {incenseWeightRows(state.incenseWeightPolicy ?? LEGACY_INCENSE_WEIGHT_POLICY, personal.tokenPerIncense).map((row) => (
                   <tr key={`${row.model}:${row.weight}`}>
                     <th scope="row">{row.model}</th>
-                    <td>{row.weight}</td>
                     <td>{row.stick}</td>
                   </tr>
                 ))}
@@ -1710,7 +1749,13 @@ export function Panel(props: PanelProps): ReactElement {
                     </button>
                     <span id="liangxiang-day-end-hint" data-liangxiang-day-end-hint="" role="tooltip">
                       {state.dayEnd?.available
-                        ? `余额满 500 炷后每 10 分钟按限额上香，23:59 再收尾一次。DSH 运行时生效；旧版开关需重新开启。右键夯 / 拉设置默认方向（当前：${state.dayEnd.voteType === 'down' ? '拉' : '夯'}）。`
+                        ? <>
+                          <span data-liangxiang-day-end-summary="">满 500 炷后每 10 分钟上香，23:59 再按限额收尾一次。</span>
+                          <span data-liangxiang-day-end-direction="">
+                            <span>右键夯/拉设置方向</span>
+                            <strong>当前：{state.dayEnd.voteType === 'down' ? '拉' : '夯'}</strong>
+                          </span>
+                        </>
                         : '定时设置暂不可用，请确认 DSH 已连接并加载新版插件。'}
                     </span>
                   </div>
@@ -1732,7 +1777,10 @@ export function Panel(props: PanelProps): ReactElement {
                     onClick={onShowVersion}
                   >
                     <VersionSealIcon />
-                    <strong style={{ fontSize: '10px', whiteSpace: 'nowrap', letterSpacing: '-0.2px' }}>v{PLUGIN_VERSION}</strong>
+                    <span data-liangxiang-version-label="">
+                      <strong>v{versionBase}</strong>
+                      {versionSuffix ? <span>{versionSuffix}</span> : null}
+                    </span>
                   </button>
                 </div>
                 <details style={{ marginTop: '7px', fontSize: '9px', color: color.textSecondary }}>

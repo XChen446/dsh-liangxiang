@@ -902,6 +902,7 @@ describe('signed online day-end authority', () => {
       await waitFor(() => state.jobs.online?.done === true, 'first periodic receipt')
       expect(state.jobs.online).toMatchObject({ kind: 'periodic', count: 500 })
       expect(personal().used_incense).toBe(500)
+      expect(ritual.getWireState().timedIncense).toMatchObject({ todayUp: 500, todayDown: 0, lifetimeUp: 500 })
       const first = state.jobs.online?.requestId
       s.clock.advance(AUTO_DUMP_PERIOD_MS)
       await ritual.setDayEndPreferences({ enabled: true, voteType: 'up' })
@@ -911,6 +912,8 @@ describe('signed online day-end authority', () => {
       await ritual.setDayEndPreferences({ enabled: true, voteType: 'up' })
       await waitFor(() => state.jobs.online?.kind === 'closing' && state.jobs.online.done, 'closing receipt')
       expect(personal().used_incense).toBe(1_450)
+      expect(ritual.getWireState().timedIncense).toMatchObject({ todayUp: 1_450, todayDown: 0, lifetimeUp: 1_450 })
+      expect(state.incense?.local).toBeUndefined()
       expect(personal().remaining_incense).toBe(0)
       expect(state.jobs.local).toBeUndefined()
     } finally { ritual.dispose() }

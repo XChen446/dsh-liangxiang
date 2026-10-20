@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { VOTE_COUNT_MAX, VOTE_REFILL_PER_MINUTE } from '../domain/index.ts'
+import { EMPTY_LOCAL_INCENSE, recordLocalIncenseVote, rollLocalIncenseDay, VOTE_COUNT_MAX, VOTE_REFILL_PER_MINUTE } from '../domain/index.ts'
 import type { Clock } from '../shared/business-date.ts'
 import { DEFAULT_DAY_END, parseDayEndPreferences, parseDayEndState, type DayEndPersistence, type DayEndPreferences, type DayEndState, type DayEndJob } from '../shared/day-end.ts'
 import type { LiangxiangWireState, WireVoteRequest } from '../shared/wire.ts'
@@ -58,7 +58,10 @@ export class DayEndService extends AuthoritySlot {
 
   override getWireState(): LiangxiangWireState {
     const wire = super.getWireState()
-    return { ...wire, revision: wire.revision + this.settingsRevision,
+    const ledger = this.state.incense?.[wire.authorityMode === 'LOCAL_FAKE_DEV' ? 'local' : 'online']
+    const timedIncense = ledger === undefined ? undefined
+      : ledger.businessDate === wire.businessDate ? ledger : { ...rollLocalIncenseDay(ledger), businessDate: wire.businessDate }
+    return { ...wire, ...(timedIncense === undefined ? {} : { timedIncense }), revision: wire.revision + this.settingsRevision,
       dayEnd: { enabled: this.state.enabled, voteType: this.state.voteType, available: this.persistence !== null } }
   }
 
@@ -216,7 +219,17 @@ export class DayEndService extends AuthoritySlot {
         const outcome = await authority.vote({ caseId: job.caseId, voteType: job.voteType, requestId: job.requestId, count: job.count })
         if (outcome.result.status === 'accepted' || outcome.result.status === 'rejected') {
           const completed: DayEndJob = { ...job, done: true }
-          await this.save(s => ({ ...s, jobs: { ...s.jobs, [mode]: completed } }))
+          const accepted = outcome.result.status === 'accepted'
+            ? outcome.result.acceptedIncense ?? outcome.result.spentIncense ?? 1 : 0
+          if (!Number.isSafeInteger(accepted) || accepted < 0 || accepted > job.count) throw new Error('invalid accepted incense count')
+          await this.save(s => {
+            if (s.jobs[mode]?.requestId !== completed.requestId || s.jobs[mode]?.done) return s
+            const previous = s.incense?.[mode]
+            const ledger = previous === undefined ? { ...EMPTY_LOCAL_INCENSE }
+              : previous.businessDate === completed.businessDate ? previous : rollLocalIncenseDay(previous)
+            return { ...s, jobs: { ...s.jobs, [mode]: completed },
+              incense: { ...s.incense, [mode]: { ...recordLocalIncenseVote(ledger, completed.voteType, accepted), businessDate: completed.businessDate } } }
+          })
           if (job.kind === 'periodic') this.periodicReadyAt = this.clock.now() + AUTO_DUMP_PERIOD_MS
         }
       })
